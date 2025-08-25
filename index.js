@@ -25,7 +25,7 @@ const vapidKeys = {
   privateKey: "PPjlEiVF54y-_2DK51MLr-TQho_6o2d-Ydqlc7oDQmE"   // <<< ใส่ Private Key ที่ generate
 };
 
-webPush.setVapidDetails(
+webpush.setVapidDetails(
   "mailto:your-email@example.com",
   vapidKeys.publicKey,
   vapidKeys.privateKey
