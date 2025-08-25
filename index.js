@@ -14,7 +14,7 @@ const helmet =require("helmet")
 // ⬇️ เพิ่มส่วนนี้
 const { io, userSocketMap } = require("./socket/socket")(server);
 const rateLimit = require("express-rate-limit");
-// แก้ controller ให้ใช้ io และ userSocketMap ได้
+// แก้ controller ให้ใช้ io และ userSocket
 app.set("io", io);
 app.set("userSocketMap", userSocketMap);
 
