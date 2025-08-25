@@ -8,8 +8,7 @@ npm-debug.log
 yarn-error.log
 
 # docker
-docker-compose.yml
-Dockerfile
+
 .dockerignore
 # Environment Variables
 .env
