@@ -20,13 +20,16 @@ app.set("userSocketMap", userSocketMap);
 
 ///
 const subscriptions = [];
+const vapidKeys = {
+  publicKey: "BKJ9SevryVm-OLZmM8m3_0NkM8K3lDjpNuAj3-I9yVLBhImfgA3kdrHT8Q5vBOk9AZpFSfx30nW3Sts5H81kg9U",   // <<< ใส่ Public Key ที่ generate
+  privateKey: "PPjlEiVF54y-_2DK51MLr-TQho_6o2d-Ydqlc7oDQmE"   // <<< ใส่ Private Key ที่ generate
+};
 
-webpush.setVapidDetails(
-  "mailto:admin@example.com",
-  process.env.VAPID_PUBLIC_KEY,
-  process.env.VAPID_PRIVATE_KEY
+webPush.setVapidDetails(
+  "mailto:your-email@example.com",
+  vapidKeys.publicKey,
+  vapidKeys.privateKey
 );
-const vapidKeys = webpush.generateVAPIDKeys();
 const connectDB = require("./config/db");
 const auth_routes = require("./routes/auth_route/route");
 const admin_routes = require("./routes/admin_route/routes");
