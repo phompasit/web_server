@@ -22,6 +22,7 @@ const userSchema = new Schema(
     },
     active: {
       type: Boolean,
+      default: false,
     },
     agreeTerms: {
       type: Boolean,
@@ -29,14 +30,26 @@ const userSchema = new Schema(
     ////client
     shipping: [
       {
-        address: {
-          type: Array,
+        province: {
+          type: String,
         },
         name: {
           type: String,
         },
         phone: {
           type: Number,
+        },
+        district: {
+          type: String,
+        },
+        village: {
+          type: String,
+        },
+        transportCompany: {
+          type: String,
+        },
+        branch: {
+          type: String,
         },
       },
     ],
@@ -92,5 +105,21 @@ userSchema.virtual("falsh_sales", {
   ref: "falsh_sales",
   localField: "_id",
   foreignField: "user_id",
+});
+userSchema.virtual("conversations", {
+  ref: "Conversation_models",
+  localField: "_id",
+  foreignField: "participants",
+});
+
+userSchema.virtual("messages", {
+  ref: "Message_models",
+  localField: "_id",
+  foreignField: "sender",
+});
+userSchema.virtual("Subscription", {
+  ref: "Subscription",
+  localField: "_id",
+  foreignField: "userId",
 });
 module.exports = model("User_models", userSchema);

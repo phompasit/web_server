@@ -2,6 +2,33 @@ const Joi = require("joi");
 const mongoose = require("mongoose");
 const Product = require("../../models/products");
 const cloudinary = require("../../config/clound_images"); // Assuming you have a cloudinary config file
+const order = require("../../models/client_models/order");
+const Balance = require("../../models/balance");
+const { redis } = require("../../config/redisClient");
+const sellers = require("../../models/sellers");
+const Transaction = require("../../models/transaction");
+const SubscriptionModel = require("../../models/SubscriptionModel");
+const {
+  refreshRedisProducts,
+  refreshRedis_home,
+} = require("../client_controllers/products");
+
+const webpush = require("web-push");
+const sendPushNotification = async (subscription, payload, userId) => {
+  try {
+    await webpush.sendNotification(subscription, payload);
+    console.log("✅ Push sent to", userId);
+  } catch (err) {
+    if (err.statusCode === 410 || err.statusCode === 404) {
+      console.log(
+        `❌ Subscription expired for user ${userId}, removing from DB`
+      );
+      await SubscriptionModel.deleteOne({ userId });
+    } else {
+      console.error("Push error:", err);
+    }
+  }
+};
 // Image upload helper
 const ALLOWED_FILE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -88,7 +115,9 @@ const productSchema = Joi.object({
   low_stock_threshold: Joi.number().min(0).default(5),
 
   // ✅ เพิ่ม field ที่ถูกใช้งาน
-  // categoryId: Joi.string().required(),
+  // categoryId: Joi.object({
+  //   _id: Joi.string().required(),
+  // }).required(),
   brand: Joi.string().optional().allow(""),
   sku: Joi.string().optional().allow(""),
   tags: Joi.array().items(Joi.string()).optional().default([]),
@@ -104,6 +133,7 @@ const productSchema = Joi.object({
     }).default(),
     shipping_fee: Joi.number().min(0).default(0),
   }).default(),
+  orginalPrice: Joi.number().min(0).default(0),
 });
 
 const add_product = async (req, res) => {
@@ -112,6 +142,7 @@ const add_product = async (req, res) => {
       abortEarly: false,
       stripUnknown: true,
     });
+
     const file = req.files;
     if (error) {
       return res.status(400).json({
@@ -119,14 +150,14 @@ const add_product = async (req, res) => {
         details: error.details.map((err) => err.message),
       });
     }
-    
+
     const newProducts = {
       user_id: req.id,
       name: value.name,
       description: value.description,
       price: value.price,
       stock: value.stock,
-      categoryId: value.categoryId,
+      categoryId: req.body.categoryId,
       images: file,
       status: value.status,
       low_stock_threshold: value.low_stock_threshold,
@@ -137,6 +168,7 @@ const add_product = async (req, res) => {
       tags: value.tags,
       is_featured: value.is_featured,
       shipping_info: value.shipping_info,
+      orginalPrice: value.orginalPrice,
     };
 
     // // ✅ Upload image if provided
@@ -226,14 +258,26 @@ const update_product = async (req, res) => {
       abortEarly: false,
       stripUnknown: true,
     });
-    console.log("value",value)
+
     if (error) {
       return res.status(400).json({
         message: "Validation failed",
         details: error.details.map((err) => err.message),
       });
     }
-
+    // ✅ ดึงสินค้ามาก่อนเพื่อเช็ค access_products เดิม
+    const existingProduct = await Product.findById(id);
+    if (!existingProduct) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+    // ✅ เงื่อนไขการกำหนด access_products
+    let newAccessStatus = existingProduct.access_products;
+    if (
+      existingProduct.access_products === "reject" ||
+      existingProduct.access_products === "process"
+    ) {
+      newAccessStatus = "process";
+    }
     const files = req.files;
     const existingImages = JSON.parse(req.body.existingImages || "[]");
     if (existingImages && existingImages != []) {
@@ -249,7 +293,6 @@ const update_product = async (req, res) => {
 
     // รวมรูปเดิม + รูปใหม่
     const allImages = [...existingImages, ...uploadedImagePaths];
-
     // สร้าง object สำหรับ update
     const update_Products = {
       user_id: req.id,
@@ -265,8 +308,10 @@ const update_product = async (req, res) => {
       colors: value.colors,
       brand: value.brand,
       sku: value.sku,
+      access_products: newAccessStatus, // ✅ ใช้ค่าใหม่
       tags: value.tags,
       is_featured: value.is_featured,
+      orginalPrice: value.orginalPrice,
       shipping_info: value.shipping_info,
     };
 
@@ -282,7 +327,26 @@ const update_product = async (req, res) => {
     if (!updatedProduct) {
       return res.status(404).json({ message: "Product not found" });
     }
-
+    await redis.del(`product:${id}`); // ลบ cache เก่าออกก่อน
+    const seller = await sellers.findOne({ user_id: updatedProduct.user_id });
+    await redis.set(
+      `product:${id}`,
+      JSON.stringify({
+        product: updatedProduct,
+        seller: seller,
+      }),
+      "EX",
+      3600
+    );
+    await redis.del(`related_products:${id}`);
+    await redis.set(
+      `related_products:${id}`,
+      JSON.stringify(updatedProduct),
+      "EX",
+      3600
+    );
+    await refreshRedis_home();
+    await refreshRedisProducts();
     return res.status(200).json({
       message: "Product updated successfully",
       product: updatedProduct,
@@ -329,7 +393,26 @@ const update_status = async (req, res) => {
     if (!updatedProduct) {
       return res.status(404).json({ message: "Product not found" });
     }
-
+    await redis.del(`product:${id}`); // ลบ cache เก่าออกก่อน
+    const seller = await sellers.findOne({ user_id: updatedProduct.user_id });
+    await redis.set(
+      `product:${id}`,
+      JSON.stringify({
+        product: updatedProduct,
+        seller: seller,
+      }),
+      "EX",
+      3600
+    );
+    await redis.del(`related_products:${id}`);
+    await redis.set(
+      `related_products:${id}`,
+      JSON.stringify(updatedProduct),
+      "EX",
+      3600
+    );
+    await refreshRedis_home();
+    await refreshRedisProducts();
     // Return success response
     return res.status(200).json({
       message: "Product status updated successfully",
@@ -340,10 +423,247 @@ const update_status = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+///get_order
+const get_order = async (req, res) => {
+  try {
+    const { id } = req; // หรือถ้าใช้ JWT ให้เปลี่ยนเป็น req.user.id
+
+    // ✅ query order ที่ status = completed และมี product.user_id = id
+    const orderData = await order
+      .find({ status: "PAYMENT_COMPLETED" })
+      .populate({
+        path: "items.productId",
+        populate: {
+          path: "user_id", // populate user ของ product
+        },
+      });
+
+    if (!orderData || orderData.length === 0) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    // ✅ filter orders เฉพาะที่ product.user_id === id
+    const filteredOrders = orderData.filter((o) =>
+      o.items.some((item) => item.productId?.user_id._id?.toString() === id)
+    );
+    const seller_data = await sellers
+      .findOne({ user_id: id })
+      .populate("user_id");
+    if (filteredOrders.length === 0) {
+      return res.status(404).json({ message: "No orders found for this user" });
+    }
+
+    res.status(200).json({
+      data: filteredOrders,
+      seller_data_order: seller_data,
+    });
+  } catch (error) {
+    console.error("❌ Error getting order:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+const update_status_shipping = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { shipping_status, note, step } = req.body;
+
+    // หา order ก่อน
+    const find_order = await order.findById(id).populate("items.productId");
+    if (!find_order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    // ตรวจสอบว่า step นี้เคยมีแล้วหรือยัง
+    const stepExists = find_order.deliverySteps.some((i) => i.step === step);
+    if (stepExists) {
+      return res.status(400).json({
+        message: "This delivery step has already been added.",
+      });
+    }
+
+    // ตรวจสอบว่า status ถูกต้อง
+    const validStatuses = [
+      "Pending",
+      "Processing",
+      "Shipped",
+      "In_Transit",
+      "Out_for_Delivery",
+      "Delivered",
+      "Returned",
+      "Cancelled",
+    ];
+    if (!validStatuses.includes(shipping_status)) {
+      return res.status(400).json({ message: "Invalid shipping status" });
+    }
+
+    // ✅ ถ้า Cancelled
+    if (shipping_status === "Cancelled") {
+      // คืน stock และลด sold_count
+      for (const item of find_order.items) {
+        const product = await Product.findById(item.productId._id);
+        if (product) {
+          product.stock += item.quantity; // คืนสต็อก
+          product.sold_count = Math.max(0, product.sold_count - item.quantity); // กันค่าติดลบ
+          await product.save();
+        }
+        // ลด balance ของ seller
+        const sellerBalance = await Balance.findOne({
+          seller_id: product.user_id,
+        });
+        if (sellerBalance) {
+          sellerBalance.balance -= find_order.total;
+          if (sellerBalance.balance < 0) sellerBalance.balance = 0; // กันค่าติดลบ
+          await sellerBalance.save();
+        }
+
+        // ลบ transaction ที่ผูกกับ order นี้
+        await Transaction.findOneAndDelete({ order_id: find_order?._id });
+        ///redis
+
+        await redis.del(`product:${id}`); // ลบ cache เก่าออกก่อน
+        const seller = await sellers.findOne({
+          user_id: product.user_id,
+        });
+        await redis.set(
+          `product:${id}`,
+          JSON.stringify({
+            product: product,
+            seller: seller,
+          }),
+          "EX",
+          3600
+        );
+        await redis.del(`related_products:${id}`);
+        await redis.set(
+          `related_products:${id}`,
+          JSON.stringify(product),
+          "EX",
+          3600
+        );
+        await refreshRedis_home();
+        await refreshRedisProducts();
+      }
+    }
+    // อัปเดตสถานะ + เพิ่ม delivery step
+    const updatedOrder = await order.findByIdAndUpdate(
+      id,
+      {
+        shipping_status,
+        $push: {
+          deliverySteps: {
+            step,
+            note: note || "",
+            timestamp: new Date(),
+          },
+        },
+      },
+      { new: true }
+    );
+    const subscriptionData = await SubscriptionModel.findOne({
+      userId: updatedOrder.user_id,
+    });
+    console.log(subscriptionData);
+    if (subscriptionData) {
+      // สมมติ product.status เป็นสถานะล่าสุดของสินค้า
+      const payload = JSON.stringify({
+        title: "ຂໍ້ຄວາມໃໝ່",
+        body: `ສະຖານະຂອງຄຳສັ່ງ: ${updatedOrder.shipping_status}`, // แสดง status
+        url: `http://localhost:5174/orders/${updatedOrder._id}`, // ลิงก์ตรงไปยัง order
+      });
+
+      await sendPushNotification(
+        subscriptionData.subscription,
+        payload,
+        updatedOrder.user_id
+      );
+    }
+    res.status(200).json({
+      message: "Order shipping status updated successfully",
+      data: updatedOrder,
+    });
+  } catch (error) {
+    console.error("❌ Error updating shipping status:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+const uploadImageTracking = async (image) => {
+  try {
+    console.log("image", image);
+    return new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder: "ecommerce/images_tracking",
+          resource_type: "image",
+          transformation: [{ width: 500, height: 500, crop: "limit" }],
+        },
+        (error, result) => {
+          if (error) return reject(error);
+          resolve(result.secure_url);
+        }
+      );
+      // ❗️ส่งเฉพาะ image.buffer
+      stream.end(image?.buffer);
+    });
+  } catch (error) {
+    console.error("❌ Cloudinary upload error:", error);
+    throw new Error("Image upload failed");
+  }
+};
+const deleteCloudinaryImage = async (imageUrl) => {
+  try {
+    const publicId = imageUrl.split("/").pop().split(".")[0];
+    await cloudinary.uploader.destroy(`ecommerce/images_tracking/${publicId}`);
+  } catch (err) {
+    console.error("⚠️ Failed to delete old image from Cloudinary:", err);
+  }
+};
+const update_add_trackingAndImages = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { trackingNumber } = req.body;
+    const imagesShipping = req.file; // multer เก็บไฟล์ใหม่ไว้ตรงนี้
+
+    // ✅ หา order
+    const orderData = await order.findById(orderId);
+    if (!orderData) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    let newImageUrl = orderData.imagesShipping; // ค่า default = ใช้ของเดิม
+
+    // ✅ ถ้ามีไฟล์ใหม่ → ลบของเดิมออกแล้วแทนที่ด้วยไฟล์ใหม่
+    if (imagesShipping) {
+      if (orderData.imagesShipping) {
+        await deleteCloudinaryImage(orderData.imagesShipping);
+      }
+      newImageUrl = await uploadImageTracking(imagesShipping);
+    }
+
+    // ✅ update เฉพาะ field ที่มีการแก้
+    orderData.trackingNumber = trackingNumber || orderData.trackingNumber;
+    orderData.imagesShipping = newImageUrl;
+
+    await orderData.save();
+
+    res.status(200).json({
+      message: "Order shipping status updated successfully",
+      trackingNumber: orderData?.trackingNumber,
+      imagesShipping: orderData?.imagesShipping,
+    });
+  } catch (error) {
+    console.error("❌ Error updating shipping status:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
 module.exports = {
   add_product,
   get_products,
   update_product,
   delete_images_products,
   update_status,
+  get_order,
+  update_status_shipping,
+  update_add_trackingAndImages,
 };

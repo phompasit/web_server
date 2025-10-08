@@ -6,6 +6,13 @@ const sellerSchema = new Schema(
       ref: "User_models",
       required: true,
     },
+    fee_system: {
+      type: Number,
+    },
+
+    vat: {
+      type: Number,
+    },
     store_code: {
       type: String,
     },
@@ -92,5 +99,10 @@ sellerSchema.virtual("Order", {
   ref: "Order", // ชื่อโมเดล Cart ที่คุณใช้ใน model("Cart", ...)
   localField: "_id", // เชื่อมจาก seller._id
   foreignField: "items.sellerId", // เชื่อมกับ cart.sellerId (ซึ่งอยู่ใน array ซ้อน)
+});
+sellerSchema.virtual("Balance", {
+  ref: "Balance", // ชื่อโมเดล Cart ที่คุณใช้ใน model("Cart", ...)
+  localField: "_id", // เชื่อมจาก seller._id
+  foreignField: "seller_id", // เชื่อมกับ cart.sellerId (ซึ่งอยู่ใน array ซ้อน)
 });
 module.exports = model("sellers_models", sellerSchema);

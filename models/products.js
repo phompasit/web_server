@@ -106,6 +106,13 @@ const sellerSchema = new Schema(
       enum: ["access", "process", "rejected"],
       default: "process",
     },
+    sanitizedReason: {
+      type: String,
+    },
+    orginalPrice: {
+      type: Number,
+      min: 0,
+    },
   },
   { timestamps: true }
 );

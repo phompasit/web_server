@@ -9,11 +9,121 @@ const wishlist = require("../../models/client_models/wishlist");
 const axios = require("axios");
 const cron = require("node-cron");
 const { redis } = require("../../config/redisClient");
+const Transaction = require("../../models/transaction");
+const Balance = require("../../models/balance");
+const SubscriptionModel = require("../../models/SubscriptionModel");
+const webpush = require("web-push");
+const notification = require("../../models/notification");
+const ioClient = require("socket.io-client");
+const express = require("express");
+const app = express();
+const sendPushNotification = async (subscription, payload, userId) => {
+  try {
+    await webpush.sendNotification(subscription, payload);
+    console.log("✅ Push sent to", userId);
+  } catch (err) {
+    if (err.statusCode === 410 || err.statusCode === 404) {
+      console.log(
+        `❌ Subscription expired for user ${userId}, removing from DB`
+      );
+      await SubscriptionModel.deleteOne({ userId });
+    } else {
+      console.error("Push error:", err);
+    }
+  }
+};
+
+const refreshRedis_home = async (req, res) => {
+  try {
+    // ลบ cache เดิม
+    await redis.del("home_products");
+
+    // ดึง seller เฉพาะ field ที่จำเป็น
+    const sellers = await Seller.find().select(
+      "user_id store_name store_code store_images _id address"
+    );
+
+    // ดึง products 2 กลุ่ม
+    const [featured, latest] = await Promise.all([
+      Product.find({
+        is_featured: true,
+        access_products: "access",
+        status: "available",
+      })
+        .populate("categoryId")
+        .limit(10),
+      Product.find({ access_products: "access", status: "available" })
+        .populate("categoryId")
+        .sort({ createdAt: -1 })
+        .limit(10),
+    ]);
+
+    // ฟังก์ชันช่วย map product + seller
+    const attachSeller = (products) =>
+      products.map((product) => {
+        const seller = sellers.find(
+          (s) => String(s.user_id) === String(product.user_id)
+        );
+        return {
+          ...product.toObject(),
+          seller: seller || null,
+        };
+      });
+
+    const data = {
+      featured: attachSeller(featured),
+      latest: attachSeller(latest),
+    };
+
+    // เก็บ cache 1 ชั่วโมง
+    await redis.set("home_products", JSON.stringify(data), "EX", 3600);
+
+    console.log("📌 Refresh home_products success");
+
+    return { data, source: "mongodb" };
+  } catch (error) {
+    console.error("❌ Failed to refresh Redis home_products:", error);
+    res.status(500).json({ message: "server error 500" });
+  }
+};
+
+// รีเฟรชข้อมูลสินค้าใน Redis
+const refreshRedisProducts = async () => {
+  try {
+    await redis.del("all_products");
+    // ดึงข้อมูลล่าสุดจาก MongoDB
+    const products = await Product.find({
+      access_products: "access",
+      status: "available",
+    }).populate("categoryId");
+    const sellers = await Seller.find().select(
+      "user_id store_name store_code store_images _id address"
+    );
+    const data = products.map((product) => {
+      const seller = sellers.find(
+        (s) => String(s.user_id) === String(product.user_id) // เทียบ user_id
+      );
+      return {
+        ...product.toObject(), // copy field ของ product
+        seller: seller || null, // ✅ เพิ่ม seller เข้าไป
+      };
+    });
+    // เซ็ตค่าใหม่ใน Redis (expire 1 ชม.)
+    await redis.set("all_products", JSON.stringify(data), "EX", 3600);
+    // 3. เก็บ cache ไว้ 1 ชั่วโมง
+    // 4. เก็บใน Redis (expire 1 ชั่วโมง)
+    console.log("✅ Redis products refreshed");
+    await refreshRedis_home();
+    return data;
+  } catch (error) {
+    console.error("❌ Failed to refresh Redis products:", error);
+  }
+};
+
 const get__products = async (req, res) => {
   try {
     // 1. หาข้อมูลใน Redis ก่อน
     const cachedProducts = await redis.get("all_products");
-
     if (cachedProducts) {
       console.log("📌 Get products from Redis");
       return res.status(200).json({
@@ -25,14 +135,25 @@ const get__products = async (req, res) => {
     // 2. ถ้าไม่มีใน Redis → query DB
     const products = await Product.find({
       access_products: "access",
+      status: "available",
+    }).populate("categoryId");
+    const sellers = await Seller.find().select(
+      "user_id store_name store_code store_images _id address"
+    );
+    const data = products.map((product) => {
+      const seller = sellers.find(
+        (s) => String(s.user_id) === String(product.user_id) // เทียบ user_id
+      );
+      return {
+        ...product.toObject(), // copy field ของ product
+        seller: seller || null, // ✅ เพิ่ม seller เข้าไป
+      };
     });
-
     // 3. เก็บใน Redis (expire 1 ชั่วโมง = 3600 วินาที)
-    await redis.set("all_products", JSON.stringify(products), "EX", 3600);
+    await redis.set("all_products", JSON.stringify(data), "EX", 3600);
 
-    console.log("📌 Get products from MongoDB");
     res.status(200).json({
-      data: products,
+      data: data,
       source: "mongodb",
     });
   } catch (error) {
@@ -42,20 +163,264 @@ const get__products = async (req, res) => {
     });
   }
 };
+
+// ✅ MOVE Socket.IO initialization function here
+const onSubscribePaymentSupport = async (io) => {
+  // const  io = req.app.get("io")
+  const _socketPaymentUrl = "https://payment-gateway.lailaolab.com";
+  const socket = ioClient(_socketPaymentUrl);
+  // Track active client connections
+  let session;
+  try {
+    // Connect to the server
+    socket.on("connect", () => {
+      console.log("Connected to the payment Support server!");
+      // Subscribe to a custom event
+
+      socket.on("join::" + process.env.PAYMENT_KEY, async (data) => {
+        try {
+          session = await mongoose.startSession();
+          await session.startTransaction();
+          // SECRET_KEY  taken from to PhaJay Portal
+
+          console.log("Data received:", data);
+
+          const find_order = await Order.findOne({
+            transactionId: data.transactionId,
+          }).session(session);
+
+          if (!find_order) {
+            await session.abortTransaction();
+            session.endSession();
+            console.log(
+              "❌ Order not found for transaction:",
+              data.transactionId
+            );
+            return;
+          }
+
+          function generateUnique6Digits() {
+            const digits = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+            let result = "";
+            for (let i = 0; i < 6; i++) {
+              const index = Math.floor(Math.random() * digits.length);
+              result += digits[index];
+              digits.splice(index, 1);
+            }
+            return result;
+          }
+
+          const orderId = generateUnique6Digits();
+
+          const updatedOrder = await Order.findOneAndUpdate(
+            { transactionId: data.transactionId },
+            {
+              orderId: orderId,
+              status: data.status,
+              shipping_status: "pending",
+              refNo: data.refNo,
+              sourceName: data.sourceName,
+              exReferenceNo: data.exReferenceNo,
+              paymentMethod: data.paymentMethod,
+              payment_time: data.txnDateTime,
+              sourceAccount: data.sourceAccount,
+              deliverySteps: [
+                {
+                  step: "order_placed",
+                  note: "ໄດ້ຮັບຄຳສັ່ງຊື້ແລະຊຳລະເງິນແລ້ວ",
+                },
+              ],
+            },
+            { new: true, session }
+          );
+
+          if (!updatedOrder) {
+            throw new Error("Failed to update order");
+          }
+
+          for (const item of updatedOrder.items) {
+            await redis.del(`product:${item.productId.toString()}`);
+          }
+
+          const find_cart = await Cart.findOne({
+            userId: updatedOrder.user_id,
+          }).session(session);
+
+          if (find_cart) {
+            find_cart.cart = find_cart.cart
+              .map((seller) => {
+                seller.items = seller.items.filter(
+                  (i) =>
+                    !find_order.selectedItems.some(
+                      (item) => item.toString() === i._id.toString()
+                    )
+                );
+                return seller;
+              })
+              .filter((seller) => seller.items.length > 0);
+
+            if (find_cart.cart.length === 0) {
+              await Cart.deleteOne({ _id: find_cart._id }).session(session);
+            } else {
+              await find_cart.save({ session });
+            }
+          }
+
+          if (updatedOrder.status === data.status) {
+            for (const item of find_order.items) {
+              const updatedProduct = await Product.findByIdAndUpdate(
+                item.productId,
+                {
+                  $inc: {
+                    locked_stock: -item.quantity,
+                    sold_count: item.quantity,
+                    stock: -item.quantity,
+                  },
+                },
+                { new: true, session }
+              );
+
+              if (!updatedProduct) {
+                throw new Error(`Product not found: ${item.productId}`);
+              }
+
+              await redis.set(
+                `product:${item.productId}`,
+                JSON.stringify(updatedProduct),
+                "EX",
+                3600
+              );
+
+              const transaction_seller = new Transaction({
+                seller_id: updatedProduct.user_id,
+                order_id: updatedOrder._id,
+                subtotal: updatedOrder.total,
+                fee_system: updatedOrder.fee_system,
+                total_summary: updatedOrder.total_summary,
+                status: "pending_payout",
+                transaction_type: "sale",
+              });
+              await transaction_seller.save({ session });
+
+              const checkTransaction = await Balance.findOne({
+                seller_id: updatedProduct.user_id,
+              }).session(session);
+
+              if (checkTransaction) {
+                checkTransaction.balance += updatedOrder.total_summary;
+                await checkTransaction.save({ session });
+              } else {
+                const balance_seller = new Balance({
+                  seller_id: updatedProduct.user_id,
+                  balance: updatedOrder.total_summary,
+                });
+                await balance_seller.save({ session });
+              }
+
+              const subscriptionData = await SubscriptionModel.findOne({
+                userId: updatedProduct.user_id,
+              });
+
+              if (subscriptionData) {
+                const payload = JSON.stringify({
+                  title: "ທ່ານມີອໍເດີໃຫມ່ເຂົ້າມາ ຄຶກເບີ່ງລາຍລະອຽດ",
+                  body: "ອໍເດີເຂົ້າໃຫມ່ ຮີບກວດສອບ ຈັດສົ່ງ",
+                  url: "http://localhost:5174",
+                });
+
+                sendPushNotification(
+                  subscriptionData.subscription,
+                  payload,
+                  updatedProduct.user_id
+                ).catch((err) =>
+                  console.error("Push notification error:", err)
+                );
+
+                // await notification.create({
+                //   order_id: updatedOrder._id,
+                //   user_id: updatedProduct.user_id,
+                //   message: "ທ່ານມີອໍເດີໃຫມ່ເຂົ້າມາ",
+                // });
+              }
+            }
+
+            if (find_order.couponHold) {
+              await CouponHold.findByIdAndUpdate(
+                find_order.couponHold,
+                { status: "converted" },
+                { session }
+              );
+            }
+
+            if (find_order.coupon) {
+              const updatedCoupon = await Coupon.findByIdAndUpdate(
+                find_order.coupon,
+                { $inc: { usage_limit: -1, used_count: 1 } },
+                { new: true, session }
+              );
+
+              if (updatedCoupon) {
+                await redis.set(
+                  `coupon:${find_order.coupon}`,
+                  JSON.stringify(updatedCoupon),
+                  "EX",
+                  3600
+                );
+              }
+            }
+          }
+
+          await session.commitTransaction();
+          session.endSession();
+
+          await redis.set(
+            `order:${updatedOrder._id}`,
+            JSON.stringify(updatedOrder),
+            "EX",
+            600
+          );
+
+          await refreshRedisProducts();
+          const paymentClients = await io.of("/payment").fetchSockets();
+
+          if (paymentClients.length > 0) {
+            io.of("/payment").emit("paymentStatus", {
+              transactionId: updatedOrder.transactionId,
+              status: updatedOrder.status,
+              orderId: updatedOrder.orderId,
+            });
+            console.log(
+              "📡 Emitting paymentStatus to /payment clients",
+              paymentClients.length
+            );
+          } else {
+            console.log("⚠️ No clients connected to /payment yet");
+          }
+        } catch (error) {
+          console.error(" failed:", error);
+        }
+      });
+    });
+    // Handle the connection error (optional)
+    socket.on("connect_error", (error) => {
+      console.error("Connection failed:", error);
+    });
+    return;
+  } catch (error) {
+    if (session) {
+      await session.abortTransaction();
+      session.endSession();
+    }
+    console.log({ error });
+  }
+};
 const get__products_id = async (req, res) => {
   try {
     const { id } = req.params;
+    const products = await redis.get(`product:${id}`);
 
     // 1. หาใน Redis ก่อน
     const cachedData = await redis.get(`product:${id}`);
-    if (cachedData) {
-      console.log("📌 Get product by id from Redis");
-      return res.status(200).json({
-        data: JSON.parse(cachedData),
-        source: "redis",
-      });
-    }
-
     // 2. ถ้าไม่มีใน Redis → Query DB
     const product = await Product.findById(id);
     if (!product) {
@@ -63,6 +428,13 @@ const get__products_id = async (req, res) => {
     }
 
     const seller = await Seller.findOne({ user_id: product.user_id });
+    if (cachedData) {
+      console.log("📌 Get product by id from Redis");
+      return res.status(200).json({
+        data: JSON.parse(cachedData),
+        source: "redis",
+      });
+    }
 
     const responseData = {
       product,
@@ -94,7 +466,14 @@ const cart = async (req, res) => {
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
     }
-
+    if (
+      product.access_products === "process" ||
+      product.access_products === "rejected"
+    ) {
+      return res.status(404).json({
+        message: "ບໍ່ສາມາດສັ່ງຊື້ໄດ້ ສິນຄ້າຖືກລະງັບ ກະລຸນາເລືອກສິນຄ້າໃຫມ່",
+      });
+    }
     // Find seller
     const seller = await Seller.findOne({ user_id: product.user_id });
     if (!seller) {
@@ -250,6 +629,43 @@ const get_coupon = async (req, res) => {
 //     console.error("Error updating expired coupons:", error);
 //   }
 // });
+
+//  const place_order = async (req, res) => {
+//    try {
+// //     // สร้าง mock order
+//      const mockOrder = {
+//        _id: new mongoose.Types.ObjectId(), // ObjectId ปลอม
+//       transactionId: "a",
+//       status: "PAYMENT_COMPLETED",
+//       orderId: "123456",
+//     };
+
+// //     // ส่ง response
+//    res.status(200).json({
+//      message:
+//        "Order placed successfully, please complete payment within 10 minutes",
+//      id: mockOrder._id,
+//      transactionId: mockOrder.transactionId,
+//      orderId: mockOrder.orderId,
+//    });
+
+// //     // ถ้าต้องการ emit socket ให้ frontend รู้
+// //     // import ของคุณ
+//     if (io) {
+//       console.log(`📡 Emitting paymentStatus for mock order`);
+//       io.emit("paymentStatus", {
+//         transactionId: mockOrder.transactionId,
+//         status: mockOrder.status,
+//         orderId: mockOrder.orderId,
+//       });
+//     }
+//     console.log("Total connected clients:", io);
+//   } catch (error) {
+//     console.log(error);
+//     res.status(500).json({ message: "Server error" });
+//   }
+// };
+
 const place_order = async (req, res) => {
   const session = await mongoose.startSession();
   try {
@@ -262,22 +678,43 @@ const place_order = async (req, res) => {
       coupon,
       selectedCartItems,
       couponHold,
+      selectedItems,
+      shippingAddress,
     } = req.body;
     await session.withTransaction(async () => {
-      // 1. Lock stock for each selected cart item
+      const paymentData = {
+        amount: total,
+        description: "order",
+      };
+
+      let config = {
+        method: "post",
+        maxBodyLength: Infinity,
+        url:
+          "https://payment-gateway.lailaolab.com/v1/api/payment/generate-bcel-qr",
+        headers: {
+          secretKey:
+            "$2a$10$CqZnqIMevly0XP1F4YUw/OpCEui/j5xbElcEXDDG5C1s38mSFa/Oa",
+          "Content-Type": "application/json",
+        },
+        data: paymentData,
+      };
+
+      const response = await axios.request(config);
+      //       // 1. Lock stock for each selected cart item
       for (const item of selectedCartItems) {
         const product = await Product.findById(item.productId).session(session);
         if (!product) {
           throw new Error(`Product ${item.productId} not found`);
         }
-        // Check if enough stock is available (considering already locked stock)
+        //         // Check if enough stock is available (considering already locked stock)
         const availableStock = product.stock - (product.locked_stock || 0);
         if (availableStock < item.quantity) {
           throw new Error(
             `Insufficient stock for product ${product.name}. Available: ${availableStock}, Requested: ${item.quantity}`
           );
         }
-        // Lock the stock
+        //         // Lock the stock
         await Product.findByIdAndUpdate(
           item.productId,
           {
@@ -287,7 +724,7 @@ const place_order = async (req, res) => {
           { session }
         );
       }
-      // 2. Create/Update coupon hold with 10 minutes expiry
+      //       // 2. Create/Update coupon hold with 10 minutes expiry
       if (coupon && couponHold) {
         const expiresAt = new Date(Date.now() + 3 * 60 * 1000); // 10 minutes
         await CouponHold.findByIdAndUpdate(
@@ -301,53 +738,51 @@ const place_order = async (req, res) => {
           }
         );
       }
-      // 3. Create temporary order record
+      //       // 3. Create temporary order record
+      let userId = null;
+      for (item of selectedCartItems) {
+        const products = await Product.findById(item.productId);
+        if (!products) {
+          throw new Error(`Product ${item.productId} not found`);
+        }
+        userId = products.user_id;
+      }
+      const seller = await Seller.findOne({ user_id: userId });
+      const calculate_feeSystem = total * (seller.fee_system / 100 || 0);
       // NOTE: TempOrder_models is not imported in your code. You should import it at the top.
+      //       ///ເຊື່ອມຕໍ່ສ້າງ ຄິວອາຈາກ phapay
+
       const tempOrder = new Order({
         user_id: id,
         items: selectedCartItems,
         total,
+        total_summary: total - calculate_feeSystem,
+        fee_system: calculate_feeSystem,
         subtotal,
         discount,
+        shippingAddress,
         shippingCost,
+        qrcode: response.data.qrCode,
         coupon: coupon?._id,
+        transactionId: response.data.transactionId,
         couponHold: couponHold?._id,
         expires_at: new Date(Date.now() + 3 * 60 * 1000), // 10 minutes
         status: "pending_payment",
+        selectedItems: selectedItems,
       });
       // 2️⃣ เตรียม payload สำหรับธนาคาร (เช่น 2C2P)
       await tempOrder.save({ session });
-      const payloadData = {
-        amount: Number(total), //จำนวนเงินที่ลูกค้าต้องจ่าย
-        description: `Order #${tempOrder._id}`,
-      };
-      let config = {
-        method: "post",
-        maxBodyLength: Infinity,
-        url:
-          "https://payment-gateway.lailaolab.com/v1/api/payment/generate-bcel-qr",
-        headers: {
-          secretKey:
-            "$2a$10$CqZnqIMevly0XP1F4YUw/OpCEui/j5xbElcEXDDG5C1s38mSFa/Oa",
-          "Content-Type": "application/json",
-        },
-        data: payloadData,
-      };
-      const response = await axios.request(config);
-      // ส่ง qrCode กลับ frontend
-      // console.log("response:", response);
+
       res.status(200).json({
         message:
           "Order placed successfully, please complete payment within 10 minutes",
         id: tempOrder._id,
-        expires_in: 3 * 60 * 1000, // 10 นาที
-        qrCode: response.data.qrCode,
-        link: response.data.link,
         transactionId: response.data.transactionId,
       });
       // 4. Schedule cleanup job
       scheduleOrderCleanup(tempOrder._id, id, selectedCartItems, couponHold);
     });
+
     await session.commitTransaction();
   } catch (error) {
     if (session.inTransaction()) {
@@ -362,7 +797,7 @@ const place_order = async (req, res) => {
   }
 };
 
-// Function to schedule cleanup
+// // Function to schedule cleanup
 const scheduleOrderCleanup = (
   tempOrderId,
   userId,
@@ -391,12 +826,11 @@ const cleanupExpiredOrder = async (
     await session.withTransaction(async () => {
       //ຄົ້ນຫາ ອໍເດີ
       const tempOrder = await Order.findById(tempOrderId).session(session);
-
       if (!tempOrder || tempOrder.status !== "pending_payment") {
         return; // Order was already processed or doesn't exist
       }
 
-      // 1. Release locked stock for each item ວົນລູບລ໋ອກສະຕ໋ອກ
+      // 1. Release locked stock for each item ວົນລູບລອກສະຕ໋ອກ
       for (const item of selectedCartItems) {
         await Product.findByIdAndUpdate(
           item.productId,
@@ -759,8 +1193,15 @@ const get_home_products = async (req, res) => {
 
     // 2. Query DB  ຖ້າຕ້ອງການເພີ່ມຍອດນິຍົມ ກໍເພີມເຂົ້າໃນນີ້
     const [featured, latest] = await Promise.all([
-      Product.find({ is_featured: true, access_products: "access" }).limit(10),
-      Product.find({ access_products: "access" })
+      Product.find({
+        is_featured: true,
+        access_products: "access",
+        status: "available",
+      })
+        .populate("categoryId")
+        .limit(10),
+      Product.find({ access_products: "access", status: "available" })
+        .populate("categoryId")
         .sort({ createdAt: -1 })
         .limit(10),
     ]);
@@ -869,82 +1310,76 @@ const createFlashSale = async (req, res) => {
     res.status(500).json({ error: "Failed to create flash sale" });
   }
 };
-// ทุก 1 นาทีเช็ค Flash Sale
-// cron.schedule("* * * * *", async () => {
-//   const now = new Date();
+////
+const check_out_payment = async (req, res) => {
+  try {
+    const io = getio();
+    io.emit("paymentStatus", {
+      transactionId: "a",
+      status: "PAYMENT_COMPLETED",
+    });
+    res.status(200).json("good");
+  } catch (error) {
+    console.log(error);
+  }
+};
+//////get_order
+const get_order = async (req, res) => {
+  try {
+    const { id } = req;
+    const orders = await Order.find({
+      user_id: id,
+      status: { $ne: "expired" },
+    }).populate("items.productId");
 
-//   // เริ่ม Flash Sale
-//   const sales = await FlashSale.find({ startTime: { $lte: now }, status: "scheduled" });
-//   for (let sale of sales) {
-//     sale.status = "active";
-//     await sale.save();
-
-//     // Trigger Notification
-//     await NotificationService.sendToAllUsers({
-//       title: "🔥 Flash Sale เริ่มแล้ว!",
-//       message: `สินค้าลด ${sale.discountPercent}% รีบซื้อก่อนหมดเวลา!`,
-//       link: `/product/${sale.productId}`
-//     });
-//   }
-
-//   // จบ Flash Sale
-//   const ended = await FlashSale.find({ endTime: { $lte: now }, status: "active" });
-//   for (let sale of ended) {
-//     sale.status = "ended";
-//     await sale.save();
-//   }
-// });
-// const payment = async (req, res) => {
-//   try {
-//     const { coupon_id } = req.body;
-//     const { id } = req;
-
-//     // อัพเดต hold เป็น "used" เพื่อไม่ให้โดน cleanExpiredHolds ลบ
-//     await CouponHold.updateOne(
-//       { coupon_id, user_id: id, status: "active" },
-//       { $set: { status: "used" } }
-//     );
-
-//     res.status(200).json({ message: "ชำระเงินสำเร็จ" });
-
-//   } catch (error) {
-//     console.error("payment error", error);
-//     res.status(500).json({ message: "server error 500" });
-//   }
-// };
-module.exports.get__products = get__products;
-module.exports.get__products_id = get__products_id;
-module.exports.cart = cart;
-module.exports.get_cart = get_cart;
-module.exports.update_quantity = update_quantity;
-module.exports.place_order = place_order;
-module.exports.get_coupon = get_coupon;
-module.exports.discount = discount;
-module.exports.cancelCoupon = cancelCoupon;
-module.exports.couponHold = couponHold;
-module.exports.get_temp_order = get_temp_order;
-module.exports.wishlist_add = wishlist_add;
-module.exports.get_wishlist = get_wishlist;
-module.exports.get_wishlist_all = get_wishlist_all;
-module.exports.delete_cart_item_products = delete_cart_item_products;
-module.exports.delete_items = delete_items;
-module.exports.get_home_products = get_home_products;
-module.exports.get_related_products = get_related_products;
-module.exports.update_carts = update_carts;
-module.exports.createFlashSale = createFlashSale;
-
-//     // Add item to existing seller cart
-//     // const check = sellerCart.items.find(
-//     //   (i) => i.productId.toString() === productsId.toString()
-//     // );
-//     // if (check) {
-//     //   // Increment quantity if product already exists in cart
-//     //   check.quantity += quantity;
-//     // } else {
-//     //   sellerCart.items.push({
-//     //     productId: productsId,
-//     //     quantity,
-//     //     size,
-//     //     colors,
-//     //   });
-//   // }
+    res.status(200).json({
+      data: orders,
+    });
+  } catch (error) {
+    console.error("get_order error:", error);
+    res.status(500).json({ message: "server error 500" });
+  }
+};
+const get_order_id = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const order = await Order.findById(orderId).populate("items.productId");
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+    res.status(200).json({
+      data: order,
+    });
+  } catch (error) {
+    console.error("get_order_id error:", error);
+    res.status(500).json({ message: "server error 500" });
+  }
+};
+module.exports = {
+  get__products_id,
+  cart,
+  get_cart,
+  update_quantity,
+  place_order,
+  get_coupon,
+  discount,
+  cancelCoupon,
+  couponHold,
+  get_temp_order,
+  wishlist_add,
+  get_wishlist,
+  get_wishlist_all,
+  delete_cart_item_products,
+  delete_items,
+  get_home_products,
+  get_related_products,
+  update_carts,
+  createFlashSale,
+  check_out_payment,
+  get_order,
+  get_order_id,
+  refreshRedisProducts,
+  refreshRedis_home,
+  get__products,
+  onSubscribePaymentSupport,
+};

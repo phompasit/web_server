@@ -8,10 +8,26 @@ const SubscriptionModel = require("../../models/SubscriptionModel");
 const webpush = require("web-push");
 const products = require("../../models/products");
 const sellers = require("../../models/sellers");
+const Joi = require("joi");
+const loginSchema = Joi.object({
+  phone: Joi.string().pattern(/^\d+$/).required(),
+  password: Joi.string().min(6).required(),
+});
+const mongoose = require("mongoose");
+// validation schema
+const registerSchema = Joi.object({
+  username: Joi.string().min(3).max(50).required(),
+  email: Joi.string().email().required(),
+  password: Joi.string().min(6).required(),
+  phone: Joi.string()
+    .pattern(/^\d{7,15}$/)
+    .optional()
+    .allow(null, ""),
+  agreeTerms: Joi.boolean().optional(),
+});
 // Image upload helper
 const uploadImage = async (image) => {
   try {
-    console.log("image", image);
     return new Promise((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
         {
@@ -45,84 +61,112 @@ const deleteCloudinaryImage = async (imageUrl) => {
 };
 const register_user_auth = async (req, res, next) => {
   try {
-    const { username, password, email, role, phone, agreeTerms } = req.body;
-
-    // Validation
-    if (!username || !password || !email) {
-      return res.status(400).json({ message: "กรุณากรอกข้อมูลให้ครบถ้วน" });
+    // Validate and strip unknown fields (this will remove {$ne:...} objects etc)
+    const { value, error } = registerSchema.validate(req.body, {
+      stripUnknown: true,
+    });
+    if (error) {
+      return res.status(400).json({
+        message: "ຂໍ້ມູນບໍ່ຖືກຕ້ອງ",
+        details: error.details.map((d) => d.message),
+      });
     }
 
-    if (password.length < 6) {
-      return res
-        .status(400)
-        .json({ message: "รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร" });
-    }
+    // Cast to safe primitives
+    const username = String(value.username).trim();
+    const email = String(value.email).trim().toLowerCase();
+    const password = String(value.password);
+    const phone = value.phone ? String(value.phone).trim() : null;
+    const agreeTerms = Boolean(value.agreeTerms);
 
+    // Prevent role escalation: server decides role (ignore any role from client)
+    const role = "client";
+
+    // Check duplicates (safe queries using primitives)
     const existingUser = await User.findOne({ $or: [{ username }, { email }] });
     if (existingUser) {
       return res
         .status(400)
-        .json({ message: "ชื่อผู้ใช้หรืออีเมลถูกใช้ไปแล้ว" });
+        .json({ message: " ຊື່ຜູ້ໃຊ້ຫຼືອິເມວມີຜູ້ໃຊ້ງານແລ້ວ" });
     }
 
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // สร้าง user ใหม่ (กำหนด role = "user" โดย default เพื่อความปลอดภัย)
+    // Create user
     const newUser = new User({
       username,
       email,
       password: hashedPassword,
       phone,
       agreeTerms,
-      role: role || "user", // หรือจะ hardcoded ไปเลยก็ได้ เช่น role: "user"
+      role,
     });
 
     await newUser.save();
 
-    // สร้าง token หลัง save สำเร็จ
+    // Sign token (if you want cookie-based session)
     const token = JWT.sign(
-      { _id: newUser._id, role: newUser.role },
+      { _id: newUser._id.toString(), role: newUser.role },
       process.env.TOKEN_SECRET,
       { expiresIn: "1d" }
     );
 
+    const isProd = process.env.NODE_ENV === "production";
     res.cookie("accessToken", token, {
       httpOnly: true,
-      secure: true, // ใช้ true ใน production บน HTTPS
-      sameSite: "None",
-      maxAge: 24 * 60 * 60 * 1000, // 1 วัน
+      secure: isProd, // true only in production on HTTPS
+      sameSite: "Lax",
+      maxAge: 24 * 60 * 60 * 1000,
     });
 
-    return res.status(201).json({
-      message: "ลงทะเบียนสำเร็จ",
-    });
+    return res.status(201).json({ message: "ລົງທະບຽນສຳເລັດ" });
   } catch (error) {
     console.error("Error in register_user_auth:", error);
-    return res.status(500).json({ message: "เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์" });
+    return res.status(500).json({ message: "server error" });
   }
 };
-
-const login = async (req, res, role) => {
-  const { phone, password } = req.body;
-  if (!phone || !password) {
-    return res.status(400).json({ message: "กรอกข้อมูลให้ครบถ้วน" });
+const login = async (req, res, role = []) => {
+  // validate input ให้แยก error กับ value
+  const { value, error } = loginSchema.validate(req.body, {
+    stripUnknown: true,
+  });
+  if (error) {
+    return res.status(400).json({
+      message: "ຂໍ້ມູນບໍ່ຖືກຕ້ອງ",
+      details: error.details.map((d) => d.message),
+    });
   }
 
+  // cast ค่าให้แน่นอน (value.phone เป็น string ตาม Joi)
+  const phone = String(value.phone);
+  const password = String(value.password);
+
   try {
-    const user = await User.findOne({ phone: phone, role: { $in: role } });
+    // หา user โดยใช้ค่า primitive เท่านั้น (ไม่ใช้ user-supplied object)
+    const user = await User.findOne({
+      phone: phone,
+      role: { $in: Array.isArray(role) ? role : [role] },
+    }).select("+password");
+    // .select('+password') ในกรณีที่ password ถูก exclude ใน schema; ปรับตาม model ของคุณ
+
     if (!user) {
-      return res.status(401).json({ message: "เบอร์โทรไม่ถูกต้อง" });
+      // ไม่ระบุรายละเอียดมากเกินไป (avoid user enumeration)
+      return res
+        .status(401)
+        .json({ message: "ເບີໂທລະສັບຫຼືລະຫັດຜ່ານບໍ່ຖືກຕ້ອງ" });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(401).json({ message: "รหัสผ่านไม่ถูกต้อง" });
+      return res
+        .status(401)
+        .json({ message: "ເບີໂທລະສັບຫຼືລະຫັດຜ່ານບໍ່ຖືກຕ້ອງ" });
     }
 
     const token = JWT.sign(
       {
-        _id: user._id,
+        _id: user._id.toString(),
         role: user.role,
         phone: user.phone,
       },
@@ -130,15 +174,19 @@ const login = async (req, res, role) => {
       { expiresIn: "1d" }
     );
 
+    // ตั้ง cookie เฉพาะ production ให้ secure = true
+    const isProd = process.env.NODE_ENV === "production";
     res.cookie("accessToken", token, {
       httpOnly: true,
-      secure: true, // ใช้ true ใน production บน HTTPS
-      sameSite: "None",
+      secure: isProd, // true เฉพาะบน HTTPS
+      sameSite: isProd ? "Lax" : "Lax", // ปรับเป็น 'Lax' ปกติปลอดภัยกว่า 'None'
       maxAge: 24 * 60 * 60 * 1000, // 1 วัน
+      // domain, path, signed สามารถกำหนดได้ตามต้องการ
     });
 
+    // คืนข้อมูลผู้ใช้โดยไม่รวม password
     res.status(200).json({
-      message: "เข้าสู่ระบบสำเลัด",
+      message: "ເຂົ້າສູ່ລະບົບສຳເລັດ",
       user: {
         _id: user._id,
         username: user.username,
@@ -146,17 +194,25 @@ const login = async (req, res, role) => {
         phone: user.phone,
         role: user.role,
       },
+      // ถ้าคุณต้องการให้ client เก็บ token (เช่น mobile app) อาจส่ง token ด้วย
       token: token,
     });
   } catch (err) {
-    console.error(err);
+    console.error("login error:", err);
+    // internal error — อย่า leak ข้อมูลงานภายใน
     res.status(500).json({ message: "เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์" });
   }
 };
 const get_user = async (req, res) => {
   try {
     const { id } = req;
-    const user = await User.findById(id);
+    if (!id) return res.status(400).json({ message: "ต้องระบุ id ผู้ใช้" });
+    // ตรวจรูปแบบ ObjectId ก่อน query
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "id ไม่ถูกต้อง" });
+    }
+    const user = await User.findById(id).select("-password -__v");
+    if (!user) return res.status(404).json({ message: "ไม่พบผู้ใช้" });
     res.status(200).json({ data: user });
   } catch (error) {
     console.error(error);
@@ -169,7 +225,8 @@ const verifyUserCreate = async (req, res, next) => {
   try {
     const { id } = req;
     const { verificationData, verificationStatus } = req.body;
-
+    // 📝 parse JSON field กลับมาเป็น object
+    const parsedData = verificationData ? JSON.parse(verificationData) : {};
     const idCardImageFile = req?.files?.idCardImage?.[0];
     const selfieImageFile = req?.files?.selfieImage?.[0];
 
@@ -187,13 +244,13 @@ const verifyUserCreate = async (req, res, next) => {
       user_id: id,
       idCardImage: upload,
       selfieImage: uploadSelfImage,
-      verificationData,
+      verificationData: parsedData,
       verificationStatus,
     });
 
     await data.save();
 
-    res.status(200).json({ message: "ข้อมูลการยืนยันตัวตนถูกเรียบร้อยแล้ว" });
+    res.status(200).json({ message: "ຂໍ້ມູນການຢືນຢັນຕົວຕົນສົ່ງສຳເລັດ" });
   } catch (error) {
     console.log(error);
     return res.status(500).json({
@@ -223,7 +280,7 @@ const updateSellerReject = async (req, res) => {
     // ✅ ดึงข้อมูลผู้ขายเดิม (ใช้ user_id ที่ส่งมา)
     const checkSellId = await seller.findOne({ user_id: req.id });
     if (!checkSellId) {
-      return res.status(404).json({ message: "ไม่พบข้อมูลผู้ขาย" });
+      return res.status(404).json({ message: "ບໍ່ພົບຂໍ້ມູນຂາຍ" });
     }
 
     const idCardImageFile = req?.files?.idCardImage?.[0];
@@ -279,7 +336,7 @@ const updateSellerReject = async (req, res) => {
     );
 
     res.status(200).json({
-      message: "อัปเดตข้อมูลผู้ขายเรียบร้อยแล้ว",
+      message: "ອັບເດດຂໍ້ມູນຜູ້ຂາຍສຳເລັດ",
       seller: sellerData,
     });
   } catch (error) {
@@ -371,7 +428,7 @@ const updateSeller = async (req, res) => {
     );
 
     res.status(200).json({
-      message: "อัปเดตข้อมูลร้านค้าเรียบร้อยแล้ว",
+      message: "ອັບເດດຂໍ້ມູນຮ້ານຄ້າສຳເລັດ",
       data: updatedSeller,
     });
   } catch (error) {
@@ -407,13 +464,13 @@ const update_access_seller = async (req, res) => {
     }
     if (subscriptionData) {
       const payload = JSON.stringify({
-        title: "ผลการยืนยันตัวตน",
-        body: `สถานะของคุณคือ: ${verificationStatus}`,
+        title: "ຜົນການຍືນຢັນຕົວຕົນ",
+        body: `ສະຖານະຄື: ${verificationStatus}`,
         url: "http://localhost:5173/setting",
       });
       await webpush.sendNotification(subscriptionData.subscription, payload);
     }
-    res.json({ message: "อัปเดตสำเร็จ", data: updated });
+    res.json({ message: "ອັບເດດສຳເລັດ", data: updated });
   } catch (error) {
     console.error("update_access_seller error:", error);
     res.status(500).json({ message: "เกิดข้อผิดพลาด" });
@@ -424,7 +481,7 @@ const unsubscribe = async (req, res) => {
   try {
     const { id } = req.params;
     await SubscriptionModel.findOneAndDelete({ userId: id });
-    res.status(200).json({ message: "ลบการแจ้งเตือนสำเร็จ" });
+    res.status(200).json({ message: "ລົບການແຈ້ງເຕືອນສຳເລັດ" });
   } catch (error) {
     console.error("update_access_seller error:", error);
     res.status(500).json({ message: "เกิดข้อผิดพลาด" });
@@ -439,7 +496,7 @@ const remove_logout = async (req, res) => {
       sameSite: "lax",
       path: "/",
     });
-    res.status(200).json({ message: "Logged out" });
+    res.status(200).json({ message: "ອອກລະບົບສຳເລັດ" });
   } catch (error) {
     console.error("update_access_seller error:", error);
     res.status(500).json({ message: "เกิดข้อผิดพลาด" });
@@ -447,7 +504,12 @@ const remove_logout = async (req, res) => {
 };
 const get_sellers = async (req, res) => {
   try {
-    const sellersList = await sellers.find().lean();
+    const sellersList = await sellers
+      .find()
+      .lean()
+      .select(
+        "_id user_id store_code store_images  store_name totalSold  verificationStatus description address createdAt"
+      );
     const allProducts = await products
       .find({ access_products: "access" })
       .lean();
@@ -516,6 +578,65 @@ const get_seller = async (req, res) => {
     res.status(500).json({ message: "เกิดข้อผิดพลาด" });
   }
 };
+const statusActive_seller = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    console.log("userId", userId);
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { active: !user.active },
+      { new: true } // คืนค่า user ที่อัปเดตแล้ว
+    );
+
+    res.status(200).json({
+      message: "Update block seller success",
+      active: updatedUser.active, // ส่งสถานะใหม่กลับไปด้วย
+    });
+  } catch (error) {
+    console.error("statusActive_seller error:", error);
+    res.status(500).json({ message: "เกิดข้อผิดพลาด" });
+  }
+};
+const deleteAddress = async (req, res) => {
+  try {
+    const { addressId } = req.params;
+    const userId = req.id;
+    if (!userId || !addressId) {
+      return res.status(400).json({ message: "userId และ addressId จำเป็น" });
+    }
+
+    // validate id format ก่อน (กัน undefined)
+    if (
+      !mongoose.Types.ObjectId.isValid(userId) ||
+      !mongoose.Types.ObjectId.isValid(addressId)
+    ) {
+      return res.status(400).json({ message: "รูปแบบ ObjectId ไม่ถูกต้อง" });
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { $pull: { shipping: { _id: addressId } } },
+      { new: true }
+    );
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: "ไม่พบผู้ใช้" });
+    }
+
+    res.status(200).json({
+      message: "ລົບທີ່ຢູ່ສຳເລັດ",
+      user: updatedUser,
+    });
+  } catch (error) {
+    console.error("❌ deleteAddress error:", error);
+    res.status(500).json({ message: "เกิดข้อผิดพลาด" });
+  }
+};
 
 module.exports.register_user_auth = register_user_auth;
 module.exports.login = login;
@@ -529,30 +650,5 @@ module.exports.unsubscribe = unsubscribe;
 module.exports.remove_logout = remove_logout;
 module.exports.get_seller = get_seller;
 module.exports.get_sellers = get_sellers;
-// const update_access_seller = async (req, res) => {
-//   try {
-//     const { id } = req.params;
-//     const { verificationStatus } = req.body;
-
-//     const updated = await seller.findByIdAndUpdate(id, { verificationStatus }, { new: true });
-//     if (!updated) return res.status(404).json({ message: "ไม่พบข้อมูล" });
-
-//     const userId = updated.user_id?.toString();
-
-//     const io = req.app.get("io");
-//     const userSocketMap = req.app.get("userSocketMap");
-
-//     const targetSocketId = userSocketMap.get(userId);
-//     if (targetSocketId) {
-//       io.to(targetSocketId).emit("verify_result", {
-//         status: verificationStatus,
-//         message: `สถานะของคุณคือ: ${verificationStatus}`,
-//       });
-//     }
-
-//     res.json({ message: "อัปเดตสำเร็จ", data: updated });
-//   } catch (error) {
-//     console.error("update_access_seller error:", error);
-//     res.status(500).json({ message: "เกิดข้อผิดพลาด" });
-//   }
-// };
+module.exports.statusActive_seller = statusActive_seller;
+module.exports.deleteAddress = deleteAddress;
