@@ -1,16 +1,9 @@
-const Redis = require("ioredis");
+import Redis from "ioredis";
 
 const redis = new Redis({
-  host: process.env.REDIS_HOST || "127.0.0.1",
+  host: process.env.REDIS_HOST || "redis", // ต้องเป็นชื่อ service ใน docker-compose
   port: process.env.REDIS_PORT || 6379,
-  // password: "ถ้ามีรหัสผ่าน"
 });
 
-redis.on("connect", () => {
-  console.log("✅ Redis connected");
-});
-
-redis.on("error", (err) => {
-  console.error("❌ Redis error:", err);
-});
-module.exports.redis = redis;
+redis.on("connect", () => console.log("Redis connected"));
+redis.on("error", (err) => console.error("Redis error:", err));
