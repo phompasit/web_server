@@ -11,6 +11,7 @@ const CouponHold = require("./models/couponHold");
 const webpush = require("web-push");
 const Coupon = require("./models/coupons");
 const helmet = require("helmet");
+const PORT = process.env.PORT || 5000;
 const finance_route = require("./routes/finance_route/routes");
 // ⬇️ เพิ่มส่วนนี้
 const { io, userSocketMap } = require("./socket/socket")(server);
@@ -35,7 +36,9 @@ const admin_routes = require("./routes/admin_route/routes");
 const seller_routes = require("./routes/seller_routes/route");
 const client_routes = require("./routes/client_routes/routes");
 const chat_route = require("./routes/chat_route/routes");
-const { onSubscribePaymentSupport } = require("./controllers/client_controllers/products");
+const {
+  onSubscribePaymentSupport,
+} = require("./controllers/client_controllers/products");
 // Middleware
 app.use(bodyParser.json({ limit: "10mb" }));
 app.use(bodyParser.urlencoded({ extended: true, limit: "10mb" }));
@@ -77,7 +80,6 @@ app.post("/api/save-subscription", (req, res) => {
 });
 app.use(express.json()); // รับ JSON จาก Gateway
 
-
 // Routes
 app.use("/api/auth", auth_routes);
 app.use("/api/admin", admin_routes);
@@ -118,10 +120,9 @@ setInterval(cleanExpiredHolds, 10 * 10000); // ตรวจทุก 10 วิ
 const startServer = async () => {
   try {
     await connectDB(process.env.MONGODB_URL);
-    const PORT = process.env.PORT || 5000;
-    server.listen(PORT, () =>{
-       onSubscribePaymentSupport(io)
-      console.log(`🚀 Server + Socket.IO running on port ${PORT}`)
+    server.listen(PORT, () => {
+      onSubscribePaymentSupport(io);
+      console.log(`🚀 Server + Socket.IO running on port ${PORT}`);
     });
   } catch (error) {
     console.error("❌ Connection error:", error);
