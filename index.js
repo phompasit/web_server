@@ -79,7 +79,7 @@ app.post("/api/save-subscription", (req, res) => {
   res.status(201).json({ message: "Subscription saved" });
 });
 app.use(express.json()); // รับ JSON จาก Gateway
-
+app.get("/health", (req, res) => res.send("Server is up!"));
 // Routes
 app.use("/api/auth", auth_routes);
 app.use("/api/admin", admin_routes);
