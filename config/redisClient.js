@@ -1,4 +1,4 @@
-import Redis from "ioredis";
+const Redis =require("ioredis")
 
 const redis = new Redis({
   host: process.env.REDIS_HOST || "redis", // ต้องเป็นชื่อ service ใน docker-compose
