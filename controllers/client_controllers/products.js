@@ -1203,12 +1203,12 @@ const get_home_products = async (req, res) => {
     if (cached) {
       console.log("📌 Get home_products from Redis");
       return res.status(200).json({
-        data: JSON.parse(cached),
+        data: JSON.stringify(cached) ,
         source: "redis",
       });
     }
 
-    // 2. Query DB  ຖ້າຕ້ອງການເພີ່ມຍອດນິຍົມ ກໍເພີມເຂົ້າໃນນີ້
+    // 2. Query DB  ຖ້າຕ້ອງການເພີ່ມຍອດນິຍົມ ກໍເພີມເຂົ້າໃນນີ້ JSON.parse(cached)
     const [featured, latest] = await Promise.all([
       Product.find({
         is_featured: true,
