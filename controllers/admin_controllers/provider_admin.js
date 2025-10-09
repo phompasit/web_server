@@ -12,7 +12,7 @@ const {
   refreshRedis_home,
   refreshRedisProducts,
 } = require("../client_controllers/products");
-const { redis } = require("../../config/redisClient");
+const redis = require("../../config/redisClient");
 const sellers = require("../../models/sellers");
 const mongoose = require("mongoose");
 // Joi Schema แยกไว้ด้านนอก
@@ -428,16 +428,16 @@ const toggleFeatured = async (req, res) => {
         product: product,
         seller: seller,
       }),
-      "EX",
-      3600
+      {
+        ex: 3600,
+        nx: true,
+      }
     );
     await redis.del(`related_products:${id}`);
-    await redis.set(
-      `related_products:${id}`,
-      JSON.stringify(product),
-      "EX",
-      3600
-    );
+    await redis.set(`related_products:${id}`, JSON.stringify(product), {
+      ex: 3600,
+      nx: true,
+    });
     await refreshRedis_home();
     await refreshRedisProducts();
     return res.status(200).json({
@@ -481,16 +481,16 @@ const approve_seller = async (req, res) => {
         product: find_seller,
         seller: seller,
       }),
-      "EX",
-      3600
+      {
+        ex: 3600,
+        nx: true,
+      }
     );
     await redis.del(`related_products:${id}`);
-    await redis.set(
-      `related_products:${id}`,
-      JSON.stringify(find_seller),
-      "EX",
-      3600
-    );
+    await redis.set(`related_products:${id}`, JSON.stringify(find_seller), {
+      ex: 3600,
+      nx: true,
+    });
 
     await refreshRedis_home();
     await refreshRedisProducts();
@@ -545,16 +545,20 @@ const bulk_approve_products = async (req, res) => {
       await redis.set(
         `product:${product._id}`,
         JSON.stringify({ product, seller }),
-        "EX",
-        3600
+        {
+          ex: 3600,
+          nx: true,
+        }
       );
 
       await redis.del(`related_products:${product._id}`);
       await redis.set(
         `related_products:${product._id}`,
         JSON.stringify(product),
-        "EX",
-        3600
+        {
+          ex: 3600,
+          nx: true,
+        }
       );
     }
 
@@ -597,16 +601,16 @@ const reject_seller_products = async (req, res) => {
         product: find_seller,
         seller: seller,
       }),
-      "EX",
-      3600
+      {
+        ex: 3600,
+        nx: true,
+      }
     );
     await redis.del(`related_products:${id}`);
-    await redis.set(
-      `related_products:${id}`,
-      JSON.stringify(find_seller),
-      "EX",
-      3600
-    );
+    await redis.set(`related_products:${id}`, JSON.stringify(find_seller), {
+      ex: 3600,
+      nx: true,
+    });
 
     await refreshRedis_home();
     await refreshRedisProducts();

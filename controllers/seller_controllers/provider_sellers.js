@@ -4,7 +4,7 @@ const Product = require("../../models/products");
 const cloudinary = require("../../config/clound_images"); // Assuming you have a cloudinary config file
 const order = require("../../models/client_models/order");
 const Balance = require("../../models/balance");
-const { redis } = require("../../config/redisClient");
+const redis = require("../../config/redisClient");
 const sellers = require("../../models/sellers");
 const Transaction = require("../../models/transaction");
 const SubscriptionModel = require("../../models/SubscriptionModel");
@@ -335,16 +335,16 @@ const update_product = async (req, res) => {
         product: updatedProduct,
         seller: seller,
       }),
-      "EX",
-      3600
+      {
+        ex: 3600,
+        nx: true,
+      }
     );
     await redis.del(`related_products:${id}`);
-    await redis.set(
-      `related_products:${id}`,
-      JSON.stringify(updatedProduct),
-      "EX",
-      3600
-    );
+    await redis.set(`related_products:${id}`, JSON.stringify(updatedProduct), {
+      ex: 3600,
+      nx: true,
+    });
     await refreshRedis_home();
     await refreshRedisProducts();
     return res.status(200).json({
@@ -401,16 +401,16 @@ const update_status = async (req, res) => {
         product: updatedProduct,
         seller: seller,
       }),
-      "EX",
-      3600
+      {
+        ex: 3600,
+        nx: true,
+      }
     );
     await redis.del(`related_products:${id}`);
-    await redis.set(
-      `related_products:${id}`,
-      JSON.stringify(updatedProduct),
-      "EX",
-      3600
-    );
+    await redis.set(`related_products:${id}`, JSON.stringify(updatedProduct), {
+      ex: 3600,
+      nx: true,
+    });
     await refreshRedis_home();
     await refreshRedisProducts();
     // Return success response
@@ -530,16 +530,16 @@ const update_status_shipping = async (req, res) => {
             product: product,
             seller: seller,
           }),
-          "EX",
-          3600
+          {
+            ex: 3600,
+            nx: true,
+          }
         );
         await redis.del(`related_products:${id}`);
-        await redis.set(
-          `related_products:${id}`,
-          JSON.stringify(product),
-          "EX",
-          3600
-        );
+        await redis.set(`related_products:${id}`, JSON.stringify(product), {
+          ex: 3600,
+          nx: true,
+        });
         await refreshRedis_home();
         await refreshRedisProducts();
       }

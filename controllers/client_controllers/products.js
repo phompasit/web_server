@@ -8,7 +8,7 @@ const { default: mongoose } = require("mongoose");
 const wishlist = require("../../models/client_models/wishlist");
 const axios = require("axios");
 const cron = require("node-cron");
-const { redis } = require("../../config/redisClient");
+const redis = require("../../config/redisClient");
 const Transaction = require("../../models/transaction");
 const Balance = require("../../models/balance");
 const SubscriptionModel = require("../../models/SubscriptionModel");
@@ -76,8 +76,10 @@ const refreshRedis_home = async (req, res) => {
     };
 
     // เก็บ cache 1 ชั่วโมง
-    await redis.set("home_products", JSON.stringify(data), "EX", 3600);
-
+    await redis.set("home_products", JSON.stringify(data), {
+      ex: 3600,
+      nx: true,
+    });
     console.log("📌 Refresh home_products success");
 
     return { data, source: "mongodb" };
@@ -109,7 +111,10 @@ const refreshRedisProducts = async () => {
       };
     });
     // เซ็ตค่าใหม่ใน Redis (expire 1 ชม.)
-    await redis.set("all_products", JSON.stringify(data), "EX", 3600);
+    await redis.set("all_products", JSON.stringify(data), {
+      ex: 3600,
+      nx: true,
+    });
     // 3. เก็บ cache ไว้ 1 ชั่วโมง
     // 4. เก็บใน Redis (expire 1 ชั่วโมง)
     console.log("✅ Redis products refreshed");
@@ -150,7 +155,10 @@ const get__products = async (req, res) => {
       };
     });
     // 3. เก็บใน Redis (expire 1 ชั่วโมง = 3600 วินาที)
-    await redis.set("all_products", JSON.stringify(data), "EX", 3600);
+    await redis.set("all_products", JSON.stringify(data), {
+      ex: 3600,
+      nx: true,
+    });
 
     res.status(200).json({
       data: data,
@@ -287,8 +295,10 @@ const onSubscribePaymentSupport = async (io) => {
               await redis.set(
                 `product:${item.productId}`,
                 JSON.stringify(updatedProduct),
-                "EX",
-                3600
+                {
+                  ex: 3600,
+                  nx: true,
+                }
               );
 
               const transaction_seller = new Transaction({
@@ -363,8 +373,10 @@ const onSubscribePaymentSupport = async (io) => {
                 await redis.set(
                   `coupon:${find_order.coupon}`,
                   JSON.stringify(updatedCoupon),
-                  "EX",
-                  3600
+                  {
+                    ex: 3600,
+                    nx: true,
+                  }
                 );
               }
             }
@@ -376,8 +388,10 @@ const onSubscribePaymentSupport = async (io) => {
           await redis.set(
             `order:${updatedOrder._id}`,
             JSON.stringify(updatedOrder),
-            "EX",
-            600
+            {
+              ex: 3600,
+              nx: true,
+            }
           );
 
           await refreshRedisProducts();
@@ -442,7 +456,10 @@ const get__products_id = async (req, res) => {
     };
 
     // 3. เก็บใน Redis (expire 1 ชั่วโมง)
-    await redis.set(`product:${id}`, JSON.stringify(responseData), "EX", 3600);
+    await redis.set(`product:${id}`, JSON.stringify(responseData), {
+      ex: 3600,
+      nx: true,
+    });
 
     console.log("📌 Get product by id from MongoDB");
     res.status(200).json({
@@ -1209,7 +1226,11 @@ const get_home_products = async (req, res) => {
     const data = { featured, latest };
 
     // 3. เก็บ cache ไว้ 1 ชั่วโมง
-    await redis.set("home_products", JSON.stringify(data), "EX", 3600);
+    // await redis.set("home_products", JSON.stringify(data), "EX", 3600);
+    await redis.set("home_products", JSON.stringify(data), {
+      ex: 3600,
+      nx: true,
+    });
     console.log("📌 Get home_products from MongoDB");
     res.status(200).json({
       data,
@@ -1254,8 +1275,11 @@ const get_related_products = async (req, res) => {
     const data = { product, related };
 
     // 4. เก็บใน Redis (expire 1 ชั่วโมง)
-    await redis.set(`related_products:${id}`, JSON.stringify(data), "EX", 3600);
-
+    // await redis.set(`related_products:${id}`, JSON.stringify(data), "EX", 3600);
+    await redis.set(`related_products:${id}`, JSON.stringify(data), {
+      ex: 3600,
+      nx: true,
+    });
     console.log("📌 Get related_products from MongoDB");
     res.status(200).json({
       data,
