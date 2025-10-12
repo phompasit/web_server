@@ -24,6 +24,7 @@ const registerSchema = Joi.object({
     .optional()
     .allow(null, ""),
   agreeTerms: Joi.boolean().optional(),
+  role: Joi.string().min(10).required(),
 });
 // Image upload helper
 const uploadImage = async (image) => {
@@ -80,7 +81,7 @@ const register_user_auth = async (req, res, next) => {
     const agreeTerms = Boolean(value.agreeTerms);
 
     // Prevent role escalation: server decides role (ignore any role from client)
-    const role = "client";
+    const role = value.role;
 
     // Check duplicates (safe queries using primitives)
     const existingUser = await User.findOne({ $or: [{ username }, { email }] });
@@ -152,16 +153,12 @@ const login = async (req, res, role = []) => {
 
     if (!user) {
       // ไม่ระบุรายละเอียดมากเกินไป (avoid user enumeration)
-      return res
-        .status(401)
-        .json({ message: "ເບີໂທລະສັບຫຼືລະຫັດຜ່ານບໍ່ຖືກຕ້ອງ" });
+      return res.status(401).json({ message: "ເບີໂທລະສັບບໍ່ຖືກຕ້ອງ" });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res
-        .status(401)
-        .json({ message: "ເບີໂທລະສັບຫຼືລະຫັດຜ່ານບໍ່ຖືກຕ້ອງ" });
+      return res.status(401).json({ message: "ລະຫັດຜ່ານບໍ່ຖືກຕ້ອງ" });
     }
 
     const token = JWT.sign(
@@ -265,9 +262,6 @@ const getVerifyUser = async (req, res) => {
   try {
     const { id } = req;
     const sellerData = await seller.findOne({ user_id: id });
-    // if (!sellerData) {
-    //   return res.status(404).json({ message: "ไม่พบข้อมูลผู้ขาย" });
-    // }s
     res.status(200).json({ data: sellerData });
   } catch (error) {
     console.error(error);
@@ -364,7 +358,7 @@ const updateSeller = async (req, res) => {
 
     const existingSeller = await seller.findOne({ user_id: id });
     if (!existingSeller) {
-      return res.status(404).json({ message: "ไม่พบข้อมูลผู้ขาย" });
+      return res.status(404).json({ message: "ບໍ່ພົບຂໍ້ມູນຜູ້ຂາຍ ກະລຸນາຢືນຢັນຕົວຕົນໃຫ້ສຳເລັດ" });
     }
 
     // สร้าง store_code ถ้ายังไม่มี
@@ -450,18 +444,9 @@ const update_access_seller = async (req, res) => {
 
     const userId = updated.user_id?.toString();
     // 🔍 ค้นหาข้อมูล push subscription ของ user คนนี้
-    const subscriptionData = await SubscriptionModel.findOne({ userId });
-    ////socket io
-    const io = req.app.get("io");
-    const userSocketMap = req.app.get("userSocketMap");
-
-    const targetSocketId = userSocketMap.get(userId);
-    if (targetSocketId) {
-      io.to(targetSocketId).emit("verify_result", {
-        status: verificationStatus,
-        message: `สถานะของคุณคือ: ${verificationStatus}`,
-      });
-    }
+    const subscriptionData = await SubscriptionModel.findOne({
+      userId: userId,
+    });
     if (subscriptionData) {
       const payload = JSON.stringify({
         title: "ຜົນການຍືນຢັນຕົວຕົນ",
@@ -638,17 +623,17 @@ const deleteAddress = async (req, res) => {
   }
 };
 
-module.exports.register_user_auth = register_user_auth;
-module.exports.login = login;
-module.exports.get_user = get_user;
-module.exports.verifyUserCreate = verifyUserCreate;
-module.exports.getVerifyUser = getVerifyUser;
-module.exports.updateSeller = updateSeller;
-module.exports.updateSellerReject = updateSellerReject;
-module.exports.update_access_seller = update_access_seller;
-module.exports.unsubscribe = unsubscribe;
-module.exports.remove_logout = remove_logout;
-module.exports.get_seller = get_seller;
+module.exports.register_user_auth = register_user_auth; //ສະໝັກສະມາຊິກ
+module.exports.login = login; /// ລອກອິນ
+module.exports.get_user = get_user;  ///ດືງ user ມາທັງໝົດ
+module.exports.verifyUserCreate = verifyUserCreate; ///ສຳລັບຢືນຢັນຕົວຕົນຜູ້ຂາຍ
+module.exports.getVerifyUser = getVerifyUser; ///ດືງຂໍ້ມູນຜູ້ຂາຍ
+module.exports.updateSeller = updateSeller; //ອັບເດດຂໍ້ມູນຜູ້ຂາຍ
+module.exports.updateSellerReject = updateSellerReject; //ປະຕິເສດຂໍ້ມູນຜູ້ຂາຍ
+module.exports.update_access_seller = update_access_seller; //ອະນຸມັດຜູ້ຂາຍ
+module.exports.unsubscribe = unsubscribe; ///ຍົກເລີກເປີດການແຈ້ງເຕືອນ
+module.exports.remove_logout = remove_logout; ///ອອກລະບົບ
+module.exports.get_seller = get_seller; //ດືງຂໍ້ມູນຜູ້ຂາຍ
 module.exports.get_sellers = get_sellers;
 module.exports.statusActive_seller = statusActive_seller;
 module.exports.deleteAddress = deleteAddress;

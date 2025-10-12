@@ -1,6 +1,9 @@
 const express = require("express");
 
-const { authMiddlewares } = require("../../middlewares/authMiddlewares");
+const {
+  authMiddlewares,
+  authorizeRoles,
+} = require("../../middlewares/authMiddlewares");
 const {
   getFinanceSummary,
   getTransactions,
@@ -16,24 +19,64 @@ const {
 const router = express.Router();
 
 // GET /api/seller/finance/summary
-router.get("/getFinanceSummary", authMiddlewares, getFinanceSummary);
+router.get(
+  "/getFinanceSummary",
+  authMiddlewares,
+  authorizeRoles("admin", "seller"),
+  getFinanceSummary
+);
 
 // // GET /api/seller/finance/transactions
-router.get("/transactions", authMiddlewares, getTransactions);
+router.get(
+  "/transactions",
+  authMiddlewares,
+  authorizeRoles("admin", "seller"),
+  getTransactions
+);
 
 // // GET /api/seller/finance/analytics
-router.get("/analytics", authMiddlewares, getAnalytics);
+router.get(
+  "/analytics",
+  authMiddlewares,
+  authorizeRoles("admin", "seller"),
+  getAnalytics
+);
 
 // // POST /api/seller/finance/withdraw
-router.post("/withdraw", authMiddlewares, requestWithdraw);
+router.post(
+  "/withdraw",
+  authMiddlewares,
+  authorizeRoles("admin", "seller"),
+  requestWithdraw
+);
 
 // // GET /api/seller/finance/withdraw-requests
-router.get("/withdraw-requests", authMiddlewares, getWithdrawRequests);
+router.get(
+  "/withdraw-requests",
+  authMiddlewares,
+  authorizeRoles("admin", "seller"),
+  getWithdrawRequests
+);
 
-router.get("/dashbord", authMiddlewares, dashbord_seller);
+router.get(
+  "/dashbord",
+  authMiddlewares,
+  authorizeRoles("admin", "seller"),
+  dashbord_seller
+);
 ///admin_finance
-router.get("/get_balance", authMiddlewares, get_balance);
+router.get(
+  "/get_balance",
+  authMiddlewares,
+  authorizeRoles("admin", "seller"),
+  get_balance
+);
 ///Approving_withdrawal
-router.patch("/Approving_withdrawal/:id", authMiddlewares, Approving_withdrawal)
+router.patch(
+  "/Approving_withdrawal/:id",
+  authorizeRoles("admin", "seller"),
+  authMiddlewares,
+  Approving_withdrawal
+);
 module.exports = router;
 ///open-conversation

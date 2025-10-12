@@ -4,7 +4,6 @@ const { Server } = require("socket.io");
 const Sellers = require("../models/sellers");
 const user = require("../models/user");
 const userSocketMap = new Map(); // ✅ ใช้ Map
-const sellerSubscriptions = {}; // เก็บ subscription ตาม userId
 const mongoose = require("mongoose");
 const SubscriptionModel = require("../models/SubscriptionModel");
 const webpush = require("web-push");
@@ -49,7 +48,6 @@ function initializeSocket(server) {
       // ✅ ส่งสถานะออนไลน์ของคนในห้องกลับไป
       // เก็บ userId ลงใน socket.data
       socket.data.userId = userId;
-      const room = io.sockets.adapter.rooms.get(conversationId);
       // ดึง userId ของทุก socket ในห้อง
       const clientsInRoom = [
         ...(io.sockets.adapter.rooms.get(conversationId) || []),
@@ -57,7 +55,6 @@ function initializeSocket(server) {
       const onlineUsers = clientsInRoom.map(
         (id) => io.sockets.sockets.get(id)?.data.userId
       );
-
       // ส่ง list userId กลับไป
       io.to(conversationId).emit("roomOnlineUsers", onlineUsers);
     });
@@ -123,6 +120,7 @@ function initializeSocket(server) {
         callback({ status: "error", message: "Server error" });
       }
     });
+    ///ສົ່ງຂໍ້ຄວາມ
     socket.on(
       "sendMessage",
       async ({ conversationId, sender, text, attachments, tempMessageId }) => {
@@ -204,37 +202,6 @@ function initializeSocket(server) {
         console.error(err);
         if (callback) callback({ status: "error", error: err.message });
       }
-    });
-
-    ///ອະນຸຍາດແຈ້ງເຕືອນການຜ່ານອະນຸມັດ
-    socket.on("access_verify_seller_notification", (userId) => {
-      userSocketMap.set(userId, socket.id);
-      console.log("📌 Registered seller user:", userId);
-    });
-    /////ແຈ້ງເຕືອນປະຕິເສດການຜ່ານຢືນຢັ້ນຕົວຕົນ
-    socket.on("rejected_verify_seller_notification", (userId) => {
-      userSocketMap.set(userId, socket.id);
-      console.log("📌 reject verify seller user:", userId);
-    });
-
-    ///////
-    socket.on("register-subscription", ({ userId, subscription }) => {
-      sellerSubscriptions[userId] = subscription;
-      console.log("📌 Registered Push Subscription for", userId);
-    });
-    socket.on("admin-approve", ({ sellerId, message }) => {
-      const subscription = sellerSubscriptions[sellerId];
-      if (subscription) {
-        const payload = JSON.stringify({
-          title: "คำขอได้รับการอนุมัติ",
-          body: message,
-          icon: "/icon.png",
-        });
-
-        webpush.sendNotification(subscription, payload).catch(console.error);
-      }
-
-      io.to(sellerId).emit("approved-notify", { message });
     });
     // ออกจากห้อง conversation
     socket.on("leaveRoom", (conversationId) => {

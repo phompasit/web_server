@@ -1,4 +1,6 @@
 const Users = require("../../models/sellers");
+
+//ສຳລັບດືງຂໍ້ມູນຜູ້ຂາຍມາທັງໝົດ
 const get_seller = async (req, res) => {
   try {
     const find_seller = await Users.find({ verificationStatus: "access" })

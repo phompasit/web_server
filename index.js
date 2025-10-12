@@ -12,13 +12,14 @@ const webpush = require("web-push");
 const Coupon = require("./models/coupons");
 const helmet = require("helmet");
 const PORT = process.env.PORT || 5000;
+const mongoSanitize = require("express-mongo-sanitize");
 const finance_route = require("./routes/finance_route/routes");
 // ⬇️ เพิ่มส่วนนี้
+const sms_route = require("./routes/sms_route/route");
 const { io, userSocketMap } = require("./socket/socket")(server);
 // แก้ controller ให้ใช้ io และ userSocket
 app.set("io", io);
 app.set("userSocketMap", userSocketMap);
-const subscriptions = [];
 const vapidKeys = {
   publicKey:
     "BIUKEi_nBWz-EyGmjiExpicXPxPWSG2SsTutdFFJxMmgqK8Lg3_KWjF1cRIOAReWfx76J4ga34Al1FA5RQpOzxg", // <<< ใส่ Public Key ที่ generate
@@ -40,26 +41,12 @@ const {
   onSubscribePaymentSupport,
 } = require("./controllers/client_controllers/products");
 // Middleware
-app.use(bodyParser.json({ limit: "10mb" }));
-app.use(bodyParser.urlencoded({ extended: true, limit: "10mb" }));
-app.use(cookieParser());
-app.use(express.urlencoded({ extended: false }));
-app.use(methodOverride("_method"));
-app.use(
-  helmet.contentSecurityPolicy({
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
-      connectSrc: ["'self'", "wss:"], // socket.io
-      imgSrc: ["'self'", "data:", "https://res.cloudinary.com"],
-    },
-  })
-);
-const allowedOrigins = ["http://localhost:5173", "http://localhost:5174"];
+// ✅ Middleware
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin) return callback(null, true); // allow non-browser requests
+      const allowedOrigins = ["http://localhost:5173", "http://localhost:5174"];
+      if (!origin) return callback(null, true);
       if (allowedOrigins.indexOf(origin) === -1) {
         const msg =
           "The CORS policy for this site does not allow access from the specified Origin.";
@@ -72,14 +59,19 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
-// Save subscription (ส่งมาจาก React)
-app.post("/api/save-subscription", (req, res) => {
-  subscriptions.push(req.body);
-  console.log(req.body);
-  res.status(201).json({ message: "Subscription saved" });
-});
-app.use(express.json()); // รับ JSON จาก Gateway
-app.get("/health", (req, res) => res.send("Server is up!"));
+
+app.use(helmet());
+app.use(cookieParser());
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(methodOverride("_method"));
+
+// ✅ mongoSanitize ต้องอยู่หลังจาก express.json / urlencoded แล้ว npm uninstall body-parser
+// app.use(
+//   mongoSanitize({
+//     replaceWith: "_", // ไม่แตะ req.query โดยตรง
+//   })
+// );
 // Routes
 app.use("/api/auth", auth_routes);
 app.use("/api/admin", admin_routes);
@@ -87,7 +79,9 @@ app.use("/api/sellers", seller_routes);
 app.use("/api/client", client_routes);
 app.use("/api/chat", chat_route);
 app.use("/api/finance", finance_route);
+app.use("/api/sms", sms_route);
 
+///
 const cleanExpiredHolds = async () => {
   try {
     const now = new Date();

@@ -87,6 +87,5 @@ const authorizeRoles = (...roles) => {
 };
 
 module.exports.authorizeRoles = authorizeRoles;
-
 module.exports.authMiddlewares = authMiddlewares;
 module.exports.registerLimiter = registerLimiter;

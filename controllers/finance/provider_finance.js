@@ -263,7 +263,7 @@ const requestWithdraw = async (req, res) => {
     }
 
     // Check available balance
-    const availableAmount = await balance.find({
+    const availableAmount = await balance.findOne({
       seller_id: sellerId,
     });
     if (amount > availableAmount.balance) {

@@ -48,7 +48,7 @@ const uploadImage = async (image) => {
 const sanitize = (str) =>
   typeof str === "string" ? str.trim().replace(/<[^>]*>?/gm, "") : str;
 
-// Main controller
+// Main controller ເພີ່ມໝວດໝູ່ສິນຄ້າ
 const add_category = async (req, res) => {
   try {
     // ✅ Joi validation
@@ -109,6 +109,7 @@ const add_category = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+//ດືງຂໍ້ມູນໝວດໝູ່
 const get_category = async (req, res) => {
   try {
     const categories = await Category.find();
@@ -124,6 +125,7 @@ const get_category = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+//ລົບຮູບພາບ
 const delete_image = async (imageUrl) => {
   try {
     const publicId = imageUrl.split("/").pop().split(".")[0];
@@ -137,7 +139,7 @@ const delete_image = async (imageUrl) => {
     throw new Error("Image deletion failed");
   }
 };
-
+///ອັບເດດໝວດໝ
 const update_category = async (req, res) => {
   try {
     const { id } = req.params;
@@ -151,7 +153,7 @@ const update_category = async (req, res) => {
     const category = {
       name: name,
       description: description,
-      image: image,
+      images: image,
       status: status,
     };
     if (!category) {
@@ -202,7 +204,7 @@ const update_category = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
-
+//ລົບໝວດໝູ່
 const delete_category = async (req, res) => {
   try {
     const { id } = req.params;
@@ -252,6 +254,7 @@ const couponSchema = Joi.object({
   used_count: Joi.number().min(0).default(0),
   status: Joi.string().valid("active", "inactive", "expired").default("active"),
 });
+///ເພີ່ມຄູປອງ
 const add_coupon = async (req, res) => {
   try {
     const { error, value } = couponSchema.validate(req.body, {
@@ -297,6 +300,7 @@ const add_coupon = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+///ດືງຂໍ້ມູນສິນຄ້າມາທັງໝົດ
 const get_products = async (req, res) => {
   try {
     const find_products = await Product.find().populate("user_id").populate({
@@ -312,6 +316,7 @@ const get_products = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+//ດືງຄູປອງມາທັງໝົດ
 const get_coupon = async (req, res) => {
   try {
     const findCoupon = await Coupon.find();
@@ -323,7 +328,7 @@ const get_coupon = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
-
+///ອັບເດດຄູປອງ
 const update_coupons = async (req, res) => {
   try {
     const { id } = req.params;
@@ -360,6 +365,7 @@ const update_coupons = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+//ປະຕິເສດຢືນຢັນຜູ້ຂາຍ
 const reject_seller = async (req, res) => {
   try {
     const { id } = req.params;
@@ -378,18 +384,9 @@ const reject_seller = async (req, res) => {
     );
     const userId = find_sellers.user_id?.toString();
     // 🔍 ค้นหาข้อมูล push subscription ของ user คนนี้
-    const subscriptionData = await SubscriptionModel.findOne({ userId });
-    ////socket io
-    const io = req.app.get("io");
-    const userSocketMap = req.app.get("userSocketMap");
-
-    const targetSocketId = userSocketMap.get(userId);
-    if (targetSocketId) {
-      io.to(targetSocketId).emit("verify_result", {
-        status: verificationStatus,
-        message: `สถานะของคุณคือ: ${verificationStatus}`,
-      });
-    }
+    const subscriptionData = await SubscriptionModel.findOne({
+      userId: userId,
+    });
     if (subscriptionData) {
       const payload = JSON.stringify({
         title: "ປະຕິເສດ",
@@ -407,6 +404,7 @@ const reject_seller = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+//ອະນຸມັດສິນຄ້າໂດ່ດເດ່ນ
 const toggleFeatured = async (req, res) => {
   try {
     const { id } = req.params;
@@ -456,6 +454,7 @@ const toggleFeatured = async (req, res) => {
 // ถ้า is_featured = true → จะได้ false
 // ถ้า is_featured = false → จะได้ true
 ///handle Approve ສິນຄ້າ
+//ອະນຸມັດຜູ້ຂາຍ ຢືນຢັນຕົວຕົນ
 const approve_seller = async (req, res) => {
   try {
     const { id } = req.params;
@@ -503,7 +502,7 @@ const approve_seller = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
-//ອະນຸມັດສິນຄ້າ ແລະ ປະຕິເສດສິນຄ້າທີ່ສົ່ງຄ່າມາແບບ array
+//ອະນຸມັດສິນຄ້າ ແລະ ປະຕິເສດສິນຄ້າທີ່ສົ່ງຄ່າມາແບບ array ທີ່ແບບອະນຸມັດມາຫລາຍຕົວ
 const bulk_approve_products = async (req, res) => {
   try {
     let idArray = [];
@@ -576,7 +575,7 @@ const bulk_approve_products = async (req, res) => {
   }
 };
 
-////reject products
+////reject products ປະຕິເສດສິນຄ້າທີ່ບໍຜ່ານເກນ
 const reject_seller_products = async (req, res) => {
   try {
     const { id } = req.params;
@@ -622,6 +621,7 @@ const reject_seller_products = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+//ຈັດການຄ່າທຳນຽມລະບົບ
 const update_seller_fee = async (req, res) => {
   try {
     const { id } = req.params;
@@ -675,6 +675,7 @@ const edit_update_user = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+///ດືງຂໍ້ມູນອໍເດີມາທັງໝົດ
 const get_order_for_admin = async (req, res) => {
   try {
     const orders = await Order.find()
@@ -722,6 +723,7 @@ const get_order_for_admin = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+//ດືງລາຍງານ
 const report_admin = async (req, res) => {
   try {
     const { dateFilter, startDate, endDate } = req.query;

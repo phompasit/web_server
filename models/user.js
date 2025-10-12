@@ -63,6 +63,19 @@ const userSchema = new Schema(
       type: Number,
       default: 0,
     },
+    sms_code: {
+      type: Number,
+    },
+    otpExpires: {
+      type: Date,
+    },
+    otpSendCount: { type: Number, default: 0 }, // จำนวนครั้งส่ง OTP
+    otpLastSent: {
+      type: Date,
+    },
+    uuid: {
+      type: String,
+    },
   },
   { timestamps: true }
 );

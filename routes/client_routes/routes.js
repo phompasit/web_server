@@ -11,7 +11,7 @@ const {
   discount,
   cancelCoupon,
   couponHold,
-  get_temp_order,
+  get_temp_order, // ດືງຂໍ້ມູນການສັ່ງຊື້ສິນຄ້າມາເພື່ອຊຳລະເງິນ
   wishlist_add,
   get_wishlist,
   get_wishlist_all,
@@ -101,13 +101,8 @@ router.patch(
   authMiddlewares,
   update_shipping
 );
-///order
-router.get(
-  "/get_temp_order/:id",
-
-  authMiddlewares,
-  get_temp_order
-);
+///order ດືງຂໍ້ມູນການສັ່ງຊື້ສິນຄ້າມາເພື່ອຊຳລະເງິນ
+router.get("/get_temp_order/:id", authMiddlewares, get_temp_order);
 //wishlist
 router.post(
   "/wishlist",
@@ -150,14 +145,6 @@ router.put(
   authMiddlewares,
   update_carts
 );
-///check_out_payment
-router.post(
-  "/check_out_payment/:tempOrderId",
-
-  authMiddlewares,
-  check_out_payment
-);
-
 ///get_order
 router.get("/get_order", authMiddlewares, get_order);
 //get_order_id
