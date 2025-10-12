@@ -109,7 +109,7 @@ const cleanExpiredHolds = async () => {
 };
 
 setInterval(cleanExpiredHolds, 10 * 10000); // ตรวจทุก 10 วิ
-
+app.get('/health-check', (req, res) => res.status(200).send('OK'));
 // Start Server
 const startServer = async () => {
   try {
@@ -123,5 +123,7 @@ const startServer = async () => {
     process.exit(1);
   }
 };
-
+// Error handling
+process.on('uncaughtException', (err) => console.error(err));
+process.on('unhandledRejection', (err) => console.error(err));
 startServer();
