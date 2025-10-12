@@ -1,6 +1,4 @@
 require("dotenv").config();
-process.on("uncaughtException", (err) => console.error(err));
-process.on("unhandledRejection", (err) => console.error(err));
 const express = require("express");
 const app = express();
 const cors = require("cors");
@@ -13,7 +11,7 @@ const CouponHold = require("./models/couponHold");
 const webpush = require("web-push");
 const Coupon = require("./models/coupons");
 const helmet = require("helmet");
-const PORT = process.env.PORT || 5000;
+
 const mongoSanitize = require("express-mongo-sanitize");
 const finance_route = require("./routes/finance_route/routes");
 
@@ -117,10 +115,11 @@ app.get("/health-check", (req, res) => res.status(200).send("OK"));
 // Start Server
 const startServer = async () => {
   try {
+    const port = process.env.PORT || 5000;
     await connectDB(process.env.MONGODB_URL);
-    server.listen(PORT,"0.0.0.0", () => {
+    server.listen(port, "0.0.0.0", () => {
       onSubscribePaymentSupport(io);
-      console.log(`🚀 Server + Socket.IO running on port ${PORT}`);
+      console.log(`🚀 Server + Socket.IO running on port ${port}`);
     });
   } catch (error) {
     console.error("❌ Connection error:", error);
