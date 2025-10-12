@@ -19,5 +19,7 @@ const redis = new Redis({
 // ทดสอบ connection (optional)
 redis.set("foo", "bar").then(() => console.log("Set success"));
 redis.get("foo").then((val) => console.log("Value:", val));
+console.log("Redis URL:", process.env.UPSTASH_REDIS_REST_URL);
+console.log("Redis Token:", process.env.UPSTASH_REDIS_REST_TOKEN ? "Token loaded ✅" : "Token missing ❌");
 
 module.exports = redis;
