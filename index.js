@@ -3,7 +3,6 @@ const express = require("express");
 const app = express();
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
-const bodyParser = require("body-parser");
 const methodOverride = require("method-override");
 const http = require("http");
 const server = http.createServer(app);
@@ -115,7 +114,7 @@ app.get("/health-check", (req, res) => res.status(200).send("OK"));
 // Start Server
 const startServer = async () => {
   try {
-    const port = process.env.PORT;
+    const port = process.env.PORT || 10000; // ✅ fallback สำหรับ local เท่านั้น
     if (!port) {
       console.error("❌ PORT environment variable not set");
       process.exit(1);

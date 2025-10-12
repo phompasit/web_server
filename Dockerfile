@@ -7,5 +7,7 @@ RUN npm install
 
 COPY . .
 
-EXPOSE 3000
+# ✅ ให้ Render ควบคุม port เอง
+EXPOSE $PORT
+
 CMD ["node", "index.js"]
