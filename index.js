@@ -118,7 +118,7 @@ app.get("/health-check", (req, res) => res.status(200).send("OK"));
 const startServer = async () => {
   try {
     await connectDB(process.env.MONGODB_URL);
-    server.listen(PORT, () => {
+    server.listen(PORT,"0.0.0.0", () => {
       onSubscribePaymentSupport(io);
       console.log(`🚀 Server + Socket.IO running on port ${PORT}`);
     });
