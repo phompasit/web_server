@@ -6,10 +6,10 @@ COPY package*.json ./
 RUN npm install
 
 COPY . .
-# ✅ บอกให้ Docker รู้ว่า Render จะส่ง PORT เข้ามา
-ENV PORT=5000
 
-# ✅ ให้ Docker รู้ว่าจะเปิดพอร์ต 5000 (Render จะ override PORT เองภายหลัง)
+# Render จะกำหนด PORT เองตอนรัน
+ENV PORT=5000
 EXPOSE 5000
 
-CMD ["node", "index.js"]
+# ใช้ shell command เพื่ออ่าน env PORT ของ Render ได้จริง
+CMD ["sh", "-c", "node index.js"]

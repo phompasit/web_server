@@ -114,7 +114,7 @@ app.get("/health-check", (req, res) => res.status(200).send("OK"));
 // Start Server
 const startServer = async () => {
   try {
-    const port = process.env.PORT || 5000;// ✅ fallback สำหรับ local เท่านั้น
+    const port = process.env.PORT || 5000; // ✅ fallback สำหรับ local เท่านั้น
     if (!port) {
       console.error("❌ PORT environment variable not set");
       process.exit(1);
