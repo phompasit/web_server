@@ -1,4 +1,6 @@
 require("dotenv").config();
+process.on("uncaughtException", (err) => console.error(err));
+process.on("unhandledRejection", (err) => console.error(err));
 const express = require("express");
 const app = express();
 const cors = require("cors");
@@ -14,9 +16,11 @@ const helmet = require("helmet");
 const PORT = process.env.PORT || 5000;
 const mongoSanitize = require("express-mongo-sanitize");
 const finance_route = require("./routes/finance_route/routes");
+
 // ⬇️ เพิ่มส่วนนี้
 const sms_route = require("./routes/sms_route/route");
 const { io, userSocketMap } = require("./socket/socket")(server);
+
 // แก้ controller ให้ใช้ io และ userSocket
 app.set("io", io);
 app.set("userSocketMap", userSocketMap);
@@ -109,7 +113,7 @@ const cleanExpiredHolds = async () => {
 };
 
 setInterval(cleanExpiredHolds, 10 * 10000); // ตรวจทุก 10 วิ
-app.get('/health-check', (req, res) => res.status(200).send('OK'));
+app.get("/health-check", (req, res) => res.status(200).send("OK"));
 // Start Server
 const startServer = async () => {
   try {
@@ -124,6 +128,5 @@ const startServer = async () => {
   }
 };
 // Error handling
-process.on('uncaughtException', (err) => console.error(err));
-process.on('unhandledRejection', (err) => console.error(err));
+
 startServer();
