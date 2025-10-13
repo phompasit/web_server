@@ -11,7 +11,6 @@ const webpush = require("web-push");
 const Coupon = require("./models/coupons");
 const helmet = require("helmet");
 
-const mongoSanitize = require("express-mongo-sanitize");
 const finance_route = require("./routes/finance_route/routes");
 
 // ⬇️ เพิ่มส่วนนี้
@@ -46,7 +45,8 @@ const {
 app.use(
   cors({
     origin: function (origin, callback) {
-      const allowedOrigins = ["http://localhost:5173", "http://localhost:5174"];
+      // const allowedOrigins = ["http://localhost:5173", "http://localhost:5174"];
+      const allowedOrigins = ["*"];
       if (!origin) return callback(null, true);
       if (allowedOrigins.indexOf(origin) === -1) {
         const msg =
@@ -67,12 +67,11 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(methodOverride("_method"));
 
-// ✅ mongoSanitize ต้องอยู่หลังจาก express.json / urlencoded แล้ว npm uninstall body-parser
-// app.use(
-//   mongoSanitize({
-//     replaceWith: "_", // ไม่แตะ req.query โดยตรง
-//   })
-// );
+app.get("/health-check", (req, res) => res.status(200).send("OK"));
+///
+app.get("/", (req, res) => {
+  res.status(200).send("Server is running ✅");
+});
 // Routes
 app.use("/api/auth", auth_routes);
 app.use("/api/admin", admin_routes);
@@ -81,8 +80,7 @@ app.use("/api/client", client_routes);
 app.use("/api/chat", chat_route);
 app.use("/api/finance", finance_route);
 app.use("/api/sms", sms_route);
-app.get("/health-check", (req, res) => res.status(200).send("OK"));
-///
+
 const cleanExpiredHolds = async () => {
   try {
     const now = new Date();
