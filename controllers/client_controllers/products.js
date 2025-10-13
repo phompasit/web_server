@@ -1331,7 +1331,6 @@ module.exports = {
   get_related_products,
   update_carts,
   createFlashSale,
-  check_out_payment,
   get_order,
   get_order_id,
   refreshRedisProducts,
