@@ -20,7 +20,6 @@ const {
   get_home_products,
   get_related_products,
   update_carts,
-  check_out_payment,
   get_order,
   get_order_id,
   get__products,

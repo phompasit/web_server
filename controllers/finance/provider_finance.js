@@ -404,8 +404,8 @@ const Approving_withdrawal = async (req, res) => {
       success: true,
       message:
         status === "success"
-          ? "อนุมัติคำขอถอนเงินสำเร็จ"
-          : "ปฏิเสธคำขอถอนเงินสำเร็จ",
+          ? "ອະນຸມັດຄຳຂໍຖອນສຳເລັດ"
+          : "ປະຕິເສດຄຳຂໍຖອນສຳເລັດ",
       data: {
         withdrawRequest,
         updatedBalance,

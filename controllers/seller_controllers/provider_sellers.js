@@ -41,16 +41,16 @@ const uploadImages = async (images) => {
 
     const uploadedImages = await Promise.all(
       images.map((image) => {
-        // ✅ ตรวจสอบ mimetype และขนาด
+        // ✅ check mimetype and size
         if (!ALLOWED_FILE_TYPES.includes(image.mimetype)) {
           throw new Error(`ประเภทไฟล์ไม่ถูกต้อง: ${image.mimetype}`);
         }
 
         if (image.size > MAX_FILE_SIZE) {
-          throw new Error(`ขนาดไฟล์เกิน ${MAX_FILE_SIZE / 1024 / 1024}MB`);
+          throw new Error(`ຂະໜາດໃຫ່ຍເກີນ ${MAX_FILE_SIZE / 1024 / 1024}MB`);
         }
 
-        // ✅ ใช้ Promise เพื่อ stream buffer ไป Cloudinary
+        // ✅  Promise  stream buffer go Cloudinary
         return new Promise((resolve, reject) => {
           const stream = cloudinary.uploader.upload_stream(
             {
@@ -64,7 +64,7 @@ const uploadImages = async (images) => {
             }
           );
 
-          // ❗️ส่งเฉพาะ image.buffer
+          // ❗️ image.buffer
           stream.end(image.buffer);
         });
       })
@@ -82,7 +82,7 @@ const delete_image = async (imageUrl) => {
       throw new Error("Invalid imageUrl: must be a string");
     }
 
-    // ใช้ regex เพื่อแยก path ที่ตามหลัง "upload/"
+    // use regex for  path "upload/"
     const match = imageUrl.match(
       /upload\/(?:v\d+\/)?(.+)\.(jpg|jpeg|png|webp)$/
     );
@@ -113,11 +113,6 @@ const productSchema = Joi.object({
     .valid("available", "out_of_stock", "discontinued")
     .default("available"),
   low_stock_threshold: Joi.number().min(0).default(5),
-
-  // ✅ เพิ่ม field ที่ถูกใช้งาน
-  // categoryId: Joi.object({
-  //   _id: Joi.string().required(),
-  // }).required(),
   brand: Joi.string().optional().allow(""),
   sku: Joi.string().optional().allow(""),
   tags: Joi.array().items(Joi.string()).optional().default([]),

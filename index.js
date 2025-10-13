@@ -81,7 +81,7 @@ app.use("/api/client", client_routes);
 app.use("/api/chat", chat_route);
 app.use("/api/finance", finance_route);
 app.use("/api/sms", sms_route);
-
+app.get("/health-check", (req, res) => res.status(200).send("OK"));
 ///
 const cleanExpiredHolds = async () => {
   try {
@@ -102,7 +102,7 @@ const cleanExpiredHolds = async () => {
         // ลบ hold ออก
         await CouponHold.deleteOne({ _id: hold._id });
       }
-      console.log(`คืน quota และลบ hold ${expiredHolds.length} รายการ`);
+      console.log(`ຄືນ quota ແລະລົບ hold ${expiredHolds.length} ລາຍການ`);
     }
   } catch (err) {
     console.error("cleanExpiredHolds error", err);
@@ -110,7 +110,7 @@ const cleanExpiredHolds = async () => {
 };
 
 setInterval(cleanExpiredHolds, 10 * 10000); // ตรวจทุก 10 วิ
-app.get("/health-check", (req, res) => res.status(200).send("OK"));
+
 // Start Server
 const startServer = async () => {
   try {

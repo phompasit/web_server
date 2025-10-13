@@ -630,59 +630,6 @@ const get_coupon = async (req, res) => {
     });
   }
 };
-// ทำงานทุกๆ 1 ชั่วโมง (0 * * * * = ทุกชั่วโมง)
-// cron.schedule("0 * * * *", async () => {
-//   try {
-//     const now = new Date();
-
-//     // อัปเดต coupon ที่หมดเวลาแล้ว
-//     const result = await Coupon.updateMany(
-//       { end_date: { $lt: now }, status: "active" },
-//       { $set: { status: "expire" } }
-//     );
-
-//     console.log(`Updated ${result.modifiedCount} coupons to expire`);
-//   } catch (error) {
-//     console.error("Error updating expired coupons:", error);
-//   }
-// });
-
-//  const place_order = async (req, res) => {
-//    try {
-// //     // สร้าง mock order
-//      const mockOrder = {
-//        _id: new mongoose.Types.ObjectId(), // ObjectId ปลอม
-//       transactionId: "a",
-//       status: "PAYMENT_COMPLETED",
-//       orderId: "123456",
-//     };
-
-// //     // ส่ง response
-//    res.status(200).json({
-//      message:
-//        "Order placed successfully, please complete payment within 10 minutes",
-//      id: mockOrder._id,
-//      transactionId: mockOrder.transactionId,
-//      orderId: mockOrder.orderId,
-//    });
-
-// //     // ถ้าต้องการ emit socket ให้ frontend รู้
-// //     // import ของคุณ
-//     if (io) {
-//       console.log(`📡 Emitting paymentStatus for mock order`);
-//       io.emit("paymentStatus", {
-//         transactionId: mockOrder.transactionId,
-//         status: mockOrder.status,
-//         orderId: mockOrder.orderId,
-//       });
-//     }
-//     console.log("Total connected clients:", io);
-//   } catch (error) {
-//     console.log(error);
-//     res.status(500).json({ message: "Server error" });
-//   }
-// };
-
 const place_order = async (req, res) => {
   const session = await mongoose.startSession();
   try {
@@ -853,7 +800,6 @@ const cleanupExpiredOrder = async (
           item.productId,
           {
             $inc: { locked_stock: -item.quantity },
-            // $unset: { expires_at: 1 }, // Remove TTL
           },
           { session }
         );
@@ -1037,9 +983,6 @@ const cancelCoupon = async (req, res) => {
     // 2. เปลี่ยนสถานะ hold เป็น cancelled
     hold.status = "cancelled";
     await hold.save();
-
-    // 3. (optional) ลบ record ทิ้งถ้าไม่ต้องเก็บประวัติ
-    // await CouponHold.deleteOne({ _id: hold._id });
 
     res.status(200).json({
       message: "ยกเลิกคูปองเรียบร้อยแล้ว และคืน quota ให้ระบบ",
@@ -1335,18 +1278,7 @@ const createFlashSale = async (req, res) => {
   }
 };
 ////
-const check_out_payment = async (req, res) => {
-  try {
-    const io = getio();
-    io.emit("paymentStatus", {
-      transactionId: "a",
-      status: "PAYMENT_COMPLETED",
-    });
-    res.status(200).json("good");
-  } catch (error) {
-    console.log(error);
-  }
-};
+
 //////get_order
 const get_order = async (req, res) => {
   try {
