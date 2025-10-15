@@ -338,7 +338,6 @@ const update_coupons = async (req, res) => {
       abortEarly: false,
       stripUnknown: true,
     });
-    console.log(value);
     if (error) {
       return res.status(400).json({
         message: "Invalid coupon data",
@@ -355,7 +354,6 @@ const update_coupons = async (req, res) => {
     if (!updateCoupon) {
       return res.status(404).json({ message: "Coupon not found" });
     }
-    console.log(updateCoupon);
     return res.status(200).json({
       message: "Coupon updated successfully",
       coupon: updateCoupon,
@@ -419,12 +417,12 @@ const toggleFeatured = async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
     }
     await redis.del(`product:${id}`); // ลบ cache เก่าออกก่อน
-    const seller = await seller.findOne({ user_id: product.user_id });
+    const sellers = await seller.findOne({ user_id: product.user_id });
     await redis.set(
       `product:${id}`,
       JSON.stringify({
         product: product,
-        seller: seller,
+        seller: sellers,
       }),
       {
         ex: 3600,
@@ -473,12 +471,12 @@ const approve_seller = async (req, res) => {
       return res.status(404).json({ message: "Products not found" });
     }
     await redis.del(`product:${id}`); // ลบ cache เก่าออกก่อน
-    const seller = await seller.findOne({ user_id: find_seller.user_id });
+    const sellerc = await seller.findOne({ user_id: find_seller.user_id });
     await redis.set(
       `product:${id}`,
       JSON.stringify({
         product: find_seller,
-        seller: seller,
+        seller: sellerc,
       }),
       {
         ex: 3600,

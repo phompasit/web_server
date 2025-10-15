@@ -45,8 +45,8 @@ const {
 app.use(
   cors({
     origin: function (origin, callback) {
-      // const allowedOrigins = ["http://localhost:5173", "http://localhost:5174"];
-      const allowedOrigins = ["*"];
+       const allowedOrigins = ["http://localhost:5173", "http://localhost:5174"];
+      // const allowedOrigins = ["*"];
       if (!origin) return callback(null, true);
       if (allowedOrigins.indexOf(origin) === -1) {
         const msg =

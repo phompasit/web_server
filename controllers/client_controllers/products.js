@@ -16,7 +16,9 @@ const webpush = require("web-push");
 const notification = require("../../models/notification");
 const ioClient = require("socket.io-client");
 const express = require("express");
-const app = express();
+const Review = require("../../models/reviews");
+const cloudinary = require("../../config/clound_images");
+const User = require("../../models/user");
 const sendPushNotification = async (subscription, payload, userId) => {
   try {
     await webpush.sendNotification(subscription, payload);
@@ -44,7 +46,7 @@ const refreshRedis_home = async (req, res) => {
     );
 
     // ดึง products 2 กลุ่ม
-    const [featured, latest] = await Promise.all([
+    const [featured, latest, topRating] = await Promise.all([
       Product.find({
         is_featured: true,
         access_products: "access",
@@ -56,6 +58,15 @@ const refreshRedis_home = async (req, res) => {
         .populate("categoryId")
         .sort({ createdAt: -1 })
         .limit(10),
+      Product.find({
+        access_products: "access",
+        status: "available",
+      })
+        .populate("categoryId")
+        .sort({
+          averageRating: -1,
+        }) // ⭐ เรียงจากคะแนนสูงสุดลงต่ำสุด
+        .limit(10), // เอาแค่ 10 อันดับ
     ]);
 
     // ฟังก์ชันช่วย map product + seller
@@ -73,6 +84,7 @@ const refreshRedis_home = async (req, res) => {
     const data = {
       featured: attachSeller(featured),
       latest: attachSeller(latest),
+      topRating: attachSeller(latest),
     };
 
     // เก็บ cache 1 ชั่วโมง
@@ -80,7 +92,7 @@ const refreshRedis_home = async (req, res) => {
       ex: 3600,
       nx: true,
     });
-    console.log("📌 Refresh home_products success");
+    console.log("📌 Refresh home_products success", data);
 
     return { data, source: "mongodb" };
   } catch (error) {
@@ -132,7 +144,7 @@ const get__products = async (req, res) => {
     if (cachedProducts) {
       console.log("📌 Get products from Redis");
       return res.status(200).json({
-        data: JSON.parse(cachedProducts),
+        data: cachedProducts,
         source: "redis",
       });
     }
@@ -191,8 +203,6 @@ const onSubscribePaymentSupport = async (io) => {
           await session.startTransaction();
           // SECRET_KEY  taken from to PhaJay Portal
 
-          console.log("Data received:", data);
-
           const find_order = await Order.findOne({
             transactionId: data.transactionId,
           }).session(session);
@@ -200,10 +210,6 @@ const onSubscribePaymentSupport = async (io) => {
           if (!find_order) {
             await session.abortTransaction();
             session.endSession();
-            console.log(
-              "❌ Order not found for transaction:",
-              data.transactionId
-            );
             return;
           }
 
@@ -219,7 +225,15 @@ const onSubscribePaymentSupport = async (io) => {
           }
 
           const orderId = generateUnique6Digits();
+          // ฟังก์ชันแปลง DD/MM/YYYY HH:mm:ss เป็น Date Object
+          const parsePaymentDateTime = (dateTimeString) => {
+            // "14/10/2025 13:34:13" -> Date Object
+            const [datePart, timePart] = dateTimeString.split(" ");
+            const [day, month, year] = datePart.split("/");
+            const [hour, minute, second] = timePart.split(":");
 
+            return new Date(year, month - 1, day, hour, minute, second);
+          };
           const updatedOrder = await Order.findOneAndUpdate(
             { transactionId: data.transactionId },
             {
@@ -230,7 +244,7 @@ const onSubscribePaymentSupport = async (io) => {
               sourceName: data.sourceName,
               exReferenceNo: data.exReferenceNo,
               paymentMethod: data.paymentMethod,
-              payment_time: data.txnDateTime,
+              payment_time: parsePaymentDateTime(data.txnDateTime),
               sourceAccount: data.sourceAccount,
               deliverySteps: [
                 {
@@ -402,6 +416,7 @@ const onSubscribePaymentSupport = async (io) => {
               transactionId: updatedOrder.transactionId,
               status: updatedOrder.status,
               orderId: updatedOrder.orderId,
+              id: updatedOrder._id,
             });
             console.log(
               "📡 Emitting paymentStatus to /payment clients",
@@ -445,7 +460,7 @@ const get__products_id = async (req, res) => {
     if (cachedData) {
       console.log("📌 Get product by id from Redis");
       return res.status(200).json({
-        data: JSON.parse(cachedData),
+        data: cachedData,
         source: "redis",
       });
     }
@@ -630,22 +645,498 @@ const get_coupon = async (req, res) => {
     });
   }
 };
+// ฟังก์ชันคำนวณยอดรวมและส่วนลด (ใช้ร่วมกัน)
+const calculateOrderSummary = async (
+  userId,
+  selectedItems,
+  couponCode = null
+) => {
+  // ดึงข้อมูล Cart
+  const cart = await Cart.findOne({ userId })
+    .populate({
+      path: "cart.items.productId",
+      select: "name price stock images user_id",
+    })
+    .populate({
+      path: "cart.sellerId",
+      select: "store_name store_code fee_system",
+    });
+
+  if (!cart) {
+    throw new Error("ບໍ່ພົບຕະກ້າສິນຄ້າ");
+  }
+
+  // รวบรวมสินค้าที่เลือก
+  let selectedCartItems = [];
+  let subtotal = 0;
+  let sellers = new Map(); // เก็บข้อมูล seller แต่ละรายเพื่อคำนวณ fee
+
+  cart.cart.forEach((store) => {
+    store.items.forEach((item) => {
+      if (selectedItems.includes(item._id.toString())) {
+        const product = item.productId;
+
+        // ตรวจสอบ stock
+        if (item.quantity > product.stock) {
+          throw new Error(
+            `${product.name} ມີສິນຄ້າບໍ່ພຽງພໍ (ເຫຼືອ ${product.stock})`
+          );
+        }
+
+        const itemTotal = product.price * item.quantity;
+        subtotal += itemTotal;
+
+        selectedCartItems.push({
+          _id: item._id,
+          productId: product._id,
+          storeId: store.sellerId._id,
+          name: product.name,
+          price: product.price,
+          quantity: item.quantity,
+          color: item.colors,
+          size: item.size,
+          total: itemTotal,
+          user_id: product.user_id,
+        });
+
+        // เก็บข้อมูล seller
+        if (!sellers.has(store.sellerId._id.toString())) {
+          sellers.set(store.sellerId._id.toString(), {
+            sellerId: store.sellerId._id,
+            storeName: store.sellerId.store_name,
+            feeSystem: store.sellerId.fee_system || 0,
+          });
+        }
+      }
+    });
+  });
+
+  if (selectedCartItems.length === 0) {
+    throw new Error("ກະລຸນາເລືອກສິນຄ້າ");
+  }
+
+  let discount = 0;
+  let applicableCoupon = null;
+
+  // คำนวณส่วนลดถ้ามี coupon
+  if (couponCode) {
+    const couponResult = await calculateCouponDiscount(
+      couponCode,
+      selectedCartItems,
+      subtotal,
+      userId
+    );
+
+    if (couponResult.success) {
+      discount = couponResult.discount;
+      applicableCoupon = couponResult.coupon;
+    }
+  }
+
+  const shippingCost = 0; // คำนวณค่าจัดส่งตามต้องการ
+  const total = subtotal - discount + shippingCost;
+
+  return {
+    selectedCartItems,
+    subtotal,
+    discount,
+    shippingCost,
+    total: Math.max(0, total),
+    applicableCoupon,
+    sellers: Array.from(sellers.values()),
+  };
+};
+
+// ตรวจสอบและคำนวณส่วนลดจาก Coupon
+const calculateCouponDiscount = async (
+  couponCode,
+  selectedItems,
+  subtotal,
+  userId
+) => {
+  try {
+    // หา Coupon
+    const coupon = await Coupon.findOne({
+      coupon_code: couponCode.toUpperCase(),
+      status: "active",
+      start_date: { $lte: new Date() },
+      end_date: { $gte: new Date() },
+    });
+
+    if (!coupon) {
+      throw new Error("ໂຄ້ດສ່ວນຫຼຸດບໍ່ຖືກຕ້ອງຫຼືໝົດອາຍຸ");
+    }
+
+    // ตรวจสอบจำนวนครั้งที่ใช้
+    const availableQuota = coupon.usage_limit - coupon.used_count;
+    if (availableQuota <= 0) {
+      throw new Error("ໂຄ້ດສ່ວນຫຼຸດຖືກໃຊ້ໝົດແລ້ວ");
+    }
+
+    // ตรวจสอบยอดขั้นต่ำ
+    if (subtotal < coupon.min_order_amount) {
+      throw new Error(
+        `ຍອດຂັ້ນຕໍ່າສັ່ງຊື້ ${coupon.min_order_amount.toLocaleString()} ກີບ`
+      );
+    }
+
+    // กรองสินค้าที่ใช้คูปองได้
+    let applicableItems = [];
+
+    switch (coupon.applicable_type) {
+      case "all_system":
+        applicableItems = selectedItems;
+        break;
+
+      case "specific_products":
+        applicableItems = selectedItems.filter((item) =>
+          coupon.applicable_products.some(
+            (prodId) => prodId.toString() === item.productId.toString()
+          )
+        );
+        break;
+
+      case "specific_stores":
+        applicableItems = selectedItems.filter((item) =>
+          coupon.applicable_stores.some(
+            (storeId) => storeId.toString() === item.storeId.toString()
+          )
+        );
+        break;
+
+      default:
+        throw new Error("ປະເພດໂຄ້ດສ່ວນຫຼຸດບໍ່ຖືກຕ້ອງ");
+    }
+
+    if (applicableItems.length === 0) {
+      throw new Error("ບໍ່ມີສິນຄ້າທີ່ສາມາດໃຊ້ໂຄ້ດສ່ວນຫຼຸດນີ້ໄດ້");
+    }
+
+    // คำนวณยอດรวมของสินค้าที่ใช้ได้
+    const applicableSubtotal = applicableItems.reduce(
+      (sum, item) => sum + item.total,
+      0
+    );
+
+    // คำนวณส่วนลด
+    let discount = 0;
+
+    switch (coupon.discount_type) {
+      case "percentage":
+        discount = (applicableSubtotal * coupon.discount_value) / 100;
+        if (
+          coupon.max_discount_amount &&
+          discount > coupon.max_discount_amount
+        ) {
+          discount = coupon.max_discount_amount;
+        }
+        break;
+
+      case "fixed":
+        discount = Math.min(coupon.discount_value, applicableSubtotal);
+        break;
+
+      case "shipping":
+        discount = Math.min(coupon.discount_value, 100);
+        break;
+
+      default:
+        discount = 0;
+    }
+
+    return {
+      success: true,
+      discount: Math.min(discount, applicableSubtotal),
+      coupon: {
+        _id: coupon._id,
+        coupon_code: coupon.coupon_code,
+        discount_type: coupon.discount_type,
+        discount_value: coupon.discount_value,
+      },
+      applicableItemsCount: applicableItems.length,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      discount: 0,
+      error: error.message,
+    };
+  }
+};
+
+// API: คำนวณยอดรวม
+exports.calculateOrderSummaryAPI = async (req, res) => {
+  try {
+    const { selectedItems, couponCode } = req.body;
+    const userId = req.id; // จาก middleware auth
+
+    if (!selectedItems || selectedItems.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "ກະລຸນາເລືອກສິນຄ້າ",
+      });
+    }
+
+    const summary = await calculateOrderSummary(
+      userId,
+      selectedItems,
+      couponCode
+    );
+
+    res.json({
+      success: true,
+      subtotal: summary.subtotal,
+      discount: summary.discount,
+      shippingCost: summary.shippingCost,
+      total: summary.total,
+      applicableCoupon: summary.applicableCoupon,
+      selectedItemsCount: summary.selectedCartItems.length,
+    });
+  } catch (error) {
+    console.error("Calculate summary error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "ເກີດຂໍ້ຜິດພາດໃນການຄຳນວນ",
+    });
+  }
+};
+
+// API: Validate และ Apply Coupon
+exports.validateCoupon = async (req, res) => {
+  try {
+    const { couponCode, selectedItems } = req.body;
+    const userId = req.id;
+
+    if (!selectedItems || selectedItems.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "ກະລຸນາເລືອກສິນຄ້າ",
+      });
+    }
+
+    // คำนวณเพื่อ validate
+    const summary = await calculateOrderSummary(
+      userId,
+      selectedItems,
+      couponCode
+    );
+
+    if (summary.discount === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "ບໍ່ສາມາດໃຊ້ໂຄ້ດສ່ວນຫຼຸດນີ້ໄດ້",
+      });
+    }
+
+    // สร้าง Coupon Hold
+    const holdDuration = 5 * 60 * 1000; // 5 minutes
+    const expiresAt = new Date(Date.now() + holdDuration);
+
+    // ลบ hold เก่าที่หมดอายุ
+    await CouponHold.deleteMany({
+      userId,
+      status: "active",
+      expires_at: { $lt: new Date() },
+    });
+
+    // สร้าง hold ใหม่
+    const couponHold = await CouponHold.create({
+      userId,
+      coupon_id: summary.applicableCoupon._id,
+      expires_at: expiresAt,
+      status: "active",
+    });
+
+    res.json({
+      success: true,
+      coupon: summary.applicableCoupon,
+      discountAmount: summary.discount,
+      holdId: couponHold._id,
+      expiresAt,
+    });
+  } catch (error) {
+    console.error("Validate coupon error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "ເກີດຂໍ້ຜິດພາດ",
+    });
+  }
+};
+
+// Cleanup function สำหรับ order ที่หมดเวลา
+const scheduleOrderCleanup = (
+  orderId,
+  userId,
+  selectedCartItems,
+  couponHold
+) => {
+  setTimeout(async () => {
+    try {
+      const order = await Order.findById(orderId);
+
+      if (order && order.status === "pending_payment") {
+        // 1. คืน stock
+        for (const item of selectedCartItems) {
+          await Product.findByIdAndUpdate(item.productId, {
+            $inc: { locked_stock: -item.quantity },
+          });
+        }
+
+        // 2. ปล่อย coupon hold
+        if (couponHold && couponHold._id) {
+          await CouponHold.findByIdAndUpdate(couponHold._id, {
+            status: "expired",
+          });
+        }
+
+        // 3. อัปเดต order status
+        order.status = "expired";
+        await order.save();
+
+        console.log(`Order ${orderId} expired and cleaned up`);
+      }
+    } catch (error) {
+      console.error("Cleanup error:", error);
+    }
+  }, 5 * 60 * 1000); // 3 minutes
+};
+
+// API: Place Order พร้อมคำนวณทุกอย่างฝั่ง Backend
+// const bankEndpoints = {
+//   bcel: process.env.BCEL,
+//   // jdb: process.env.JDB,
+//   // ldb: process.env.LDB,
+// };
+
+// const url = bankEndpoints[selectedBank];
+// if (!url) {
+//   throw new Error("Invalid bank selection");
+// }
 const place_order = async (req, res) => {
   const session = await mongoose.startSession();
+
   try {
     const { id } = req;
     const {
-      total,
-      subtotal,
-      discount,
-      shippingCost,
-      coupon,
-      selectedCartItems,
-      couponHold,
       selectedItems,
+      couponCode,
+      couponHoldId,
       shippingAddress,
+      selectedBank,
     } = req.body;
+
+    // ตรวจสอบที่อยู่
+    if (!shippingAddress) {
+      return res.status(400).json({
+        success: false,
+        message: "ກະລຸນາເລືອກທີ່ຢູ່ຈັດສົ່ງ",
+      });
+    }
+
+    // ตรวจสอบสินค้าที่เลือก
+    if (!selectedItems || selectedItems.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "ກະລຸນາເລືອກສິນຄ້າ",
+      });
+    }
+
     await session.withTransaction(async () => {
+      // 1. คำนวณยอดรวมทั้งหมดฝั่ง Backend
+      const summary = await calculateOrderSummary(
+        id,
+        selectedItems,
+        couponCode
+      );
+
+      const {
+        selectedCartItems,
+        subtotal,
+        discount,
+        shippingCost,
+        total,
+        applicableCoupon,
+        sellers,
+      } = summary;
+
+      // 2. ตรวจสอบและล็อค stock
+      for (const item of selectedCartItems) {
+        const product = await Product.findById(item.productId).session(session);
+
+        if (!product) {
+          return res
+            .status(400)
+            .json({ message: `Product ${item.productId} not found` });
+        }
+
+        // Check available stock
+        const availableStock = product.stock - (product.locked_stock || 0);
+        if (availableStock < item.quantity) {
+          return res.status(400).json({
+            message: `ສິນຄ້າ ${product.name} ບໍ່ພຽງພໍ. ເຫຼືອ: ${availableStock}, ຕ້ອງການ: ${item.quantity}`,
+          });
+        }
+
+        // Lock stock
+        await Product.findByIdAndUpdate(
+          item.productId,
+          {
+            $inc: { locked_stock: item.quantity },
+            expires_at: new Date(Date.now() + 3 * 60 * 1000),
+          },
+          { session }
+        );
+      }
+
+      // 3. ตรวจสอบและอัปเดต Coupon Hold
+      if (couponCode && couponHoldId) {
+        const couponHold = await CouponHold.findOne({
+          _id: couponHoldId,
+
+          user_id: id,
+          status: "active",
+          expires_at: { $gte: new Date() },
+        }).session(session);
+
+        if (!couponHold) {
+          return res.status(404).json({ message: "ໂຄ້ດສ່ວນຫຼຸດໝົດອາຍຸແລ້ວ" });
+        }
+
+        // อัปเดต hold expiry
+        await CouponHold.findByIdAndUpdate(
+          couponHoldId,
+          {
+            expires_at: new Date(Date.now() + 3 * 60 * 1000),
+            status: "active",
+          },
+          { session }
+        );
+      }
+
+      // 4. คำนวณค่าธรรมเนียมระบบ
+      let totalFeeSystem = 0;
+      const sellerFees = sellers.map((seller) => {
+        const sellerTotal = selectedCartItems
+          .filter(
+            (item) => item.storeId.toString() === seller.sellerId.toString()
+          )
+          .reduce((sum, item) => sum + item.total, 0);
+
+        const fee = sellerTotal * (seller.feeSystem / 100 || 0);
+        totalFeeSystem += fee;
+
+        return {
+          sellerId: seller.sellerId,
+          storeName: seller.storeName,
+          sellerTotal,
+          fee,
+        };
+      });
+
+      const totalAfterFee = total - totalFeeSystem;
+
+      // ✅ 5. สร้าง Payment QR Code
+
       const paymentData = {
         amount: total,
         description: "order",
@@ -663,88 +1154,57 @@ const place_order = async (req, res) => {
         },
         data: paymentData,
       };
-
-      const response = await axios.request(config);
-      //       // 1. Lock stock for each selected cart item
-      for (const item of selectedCartItems) {
-        const product = await Product.findById(item.productId).session(session);
-        if (!product) {
-          throw new Error(`Product ${item.productId} not found`);
-        }
-        //         // Check if enough stock is available (considering already locked stock)
-        const availableStock = product.stock - (product.locked_stock || 0);
-        if (availableStock < item.quantity) {
-          throw new Error(
-            `Insufficient stock for product ${product.name}. Available: ${availableStock}, Requested: ${item.quantity}`
-          );
-        }
-        //         // Lock the stock
-        await Product.findByIdAndUpdate(
-          item.productId,
-          {
-            $inc: { locked_stock: item.quantity },
-            expires_at: new Date(Date.now() + 3 * 60 * 1000), // 10 minutes from now
-          },
-          { session }
+      let response;
+      try {
+        response = await axios.request(config);
+      } catch (err) {
+        console.error(
+          "❌ Generate QR Failed:",
+          err.response?.data || err.message
         );
+        throw new Error(err.response?.data?.detail || "Generate QR failed");
       }
-      //       // 2. Create/Update coupon hold with 10 minutes expiry
-      if (coupon && couponHold) {
-        const expiresAt = new Date(Date.now() + 3 * 60 * 1000); // 10 minutes
-        await CouponHold.findByIdAndUpdate(
-          couponHold._id,
-          {
-            expires_at: expiresAt,
-            status: "active",
-          },
-          {
-            session,
-          }
-        );
-      }
-      //       // 3. Create temporary order record
-      let userId = null;
-      for (item of selectedCartItems) {
-        const products = await Product.findById(item.productId);
-        if (!products) {
-          throw new Error(`Product ${item.productId} not found`);
-        }
-        userId = products.user_id;
-      }
-      const seller = await Seller.findOne({ user_id: userId });
-      const calculate_feeSystem = total * (seller.fee_system / 100 || 0);
-      // NOTE: TempOrder_models is not imported in your code. You should import it at the top.
-      //       ///ເຊື່ອມຕໍ່ສ້າງ ຄິວອາຈາກ phapay
-
+      // 6. สร้าง Temporary Order
       const tempOrder = new Order({
         user_id: id,
         items: selectedCartItems,
         total,
-        total_summary: total - calculate_feeSystem,
-        fee_system: calculate_feeSystem,
+        total_summary: totalAfterFee,
+        fee_system: totalFeeSystem,
+        seller_fees: sellerFees, // เพิ่มรายละเอียดค่า fee แต่ละ seller
         subtotal,
         discount,
         shippingAddress,
         shippingCost,
         qrcode: response.data.qrCode,
-        coupon: coupon?._id,
+        coupon: applicableCoupon?._id || null,
         transactionId: response.data.transactionId,
-        couponHold: couponHold?._id,
-        expires_at: new Date(Date.now() + 3 * 60 * 1000), // 10 minutes
+        couponHold: couponHoldId || null,
+        expires_at: new Date(Date.now() + 3 * 60 * 1000),
         status: "pending_payment",
         selectedItems: selectedItems,
+        createdAt: new Date(),
       });
-      // 2️⃣ เตรียม payload สำหรับธนาคาร (เช่น 2C2P)
+
       await tempOrder.save({ session });
 
+      // 7. Schedule cleanup job
+      scheduleOrderCleanup(tempOrder._id, id, selectedCartItems, {
+        _id: couponHoldId,
+      });
+
       res.status(200).json({
-        message:
-          "Order placed successfully, please complete payment within 10 minutes",
+        success: true,
+        message: "ກະລຸນາຊຳລະເງິນພາຍໃນ 3 ນາທີ",
         id: tempOrder._id,
         transactionId: response.data.transactionId,
+        qrCode: response.data.qrCode,
+        total,
+        subtotal,
+        discount,
+        fee_system: totalFeeSystem,
+        total_summary: totalAfterFee,
       });
-      // 4. Schedule cleanup job
-      scheduleOrderCleanup(tempOrder._id, id, selectedCartItems, couponHold);
     });
 
     await session.commitTransaction();
@@ -752,30 +1212,14 @@ const place_order = async (req, res) => {
     if (session.inTransaction()) {
       await session.abortTransaction();
     }
-    console.log("place_order error:", error);
-    res.status(500).json({
+    console.error("place_order error:", error);
+    return res.status(500).json({
+      success: false,
       message: error.message || "Server error 500",
     });
   } finally {
     session.endSession();
   }
-};
-
-// // Function to schedule cleanup
-const scheduleOrderCleanup = (
-  tempOrderId,
-  userId,
-  selectedCartItems,
-  couponHold
-) => {
-  setTimeout(async () => {
-    await cleanupExpiredOrder(
-      tempOrderId,
-      userId,
-      selectedCartItems,
-      couponHold
-    );
-  }, 3 * 60 * 1000); // 10 minutes
 };
 
 const cleanupExpiredOrder = async (
@@ -1097,17 +1541,6 @@ const get_wishlist_all = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
-const delete_cart_item_products = async (req, res) => {
-  try {
-    const { cartId, productId } = req.params;
-
-    res.status(200).json({
-      message: "success delete products",
-    });
-  } catch (error) {
-    console.log(error);
-  }
-};
 const delete_items = async (req, res) => {
   try {
     const { cartId, cart_id, id } = req.params;
@@ -1146,13 +1579,13 @@ const get_home_products = async (req, res) => {
     if (cached) {
       console.log("📌 Get home_products from Redis");
       return res.status(200).json({
-        data: JSON.stringify(cached) ,
+        data: cached,
         source: "redis",
       });
     }
 
     // 2. Query DB  ຖ້າຕ້ອງການເພີ່ມຍອດນິຍົມ ກໍເພີມເຂົ້າໃນນີ້ JSON.parse(cached)
-    const [featured, latest] = await Promise.all([
+    const [featured, latest, topRating] = await Promise.all([
       Product.find({
         is_featured: true,
         access_products: "access",
@@ -1164,9 +1597,18 @@ const get_home_products = async (req, res) => {
         .populate("categoryId")
         .sort({ createdAt: -1 })
         .limit(10),
+      Product.find({
+        access_products: "access",
+        status: "available",
+      })
+        .populate("categoryId")
+        .sort({
+          averageRating: -1,
+        }) // ⭐ เรียงจากคะแนนสูงสุดลงต่ำสุด
+        .limit(10), // เอาแค่ 10 อันดับ
     ]);
 
-    const data = { featured, latest };
+    const data = { featured, latest, topRating };
 
     // 3. เก็บ cache ไว้ 1 ชั่วโมง
     // await redis.set("home_products", JSON.stringify(data), "EX", 3600);
@@ -1194,7 +1636,7 @@ const get_related_products = async (req, res) => {
     if (cached) {
       console.log("📌 Get related_products from Redis");
       return res.status(200).json({
-        data: JSON.parse(cached),
+        data: cached,
         source: "redis",
       });
     }
@@ -1311,6 +1753,176 @@ const get_order_id = async (req, res) => {
     res.status(500).json({ message: "server error 500" });
   }
 };
+
+/////reviews
+// เพิ่มรีวิว
+// Image upload helper
+const uploadImage = async (file) => {
+  try {
+    // แปลง buffer เป็น base64
+    const base64Data = `data:${file.mimetype};base64,${file.buffer.toString(
+      "base64"
+    )}`;
+
+    // upload โดยใช้ data URI
+    return await cloudinary.uploader.upload(base64Data, {
+      folder: "ecommerce/image_reviews",
+      resource_type: "image",
+      transformation: [{ width: 500, height: 500, crop: "limit" }],
+    });
+  } catch (error) {
+    console.error("❌ Cloudinary upload error:", error);
+    throw new Error("Image upload failed");
+  }
+};
+
+const add_reviews = async (req, res) => {
+  try {
+    const { productsId } = req.params;
+    const { rating, reviewText } = req.body;
+    const userId = req.id;
+    const MAX_REVIEW_IMAGES = 2;
+    const files = req.files;
+
+    if (files.length > MAX_REVIEW_IMAGES) {
+      return res.status(404).json({
+        message: "ຮູບພາບເກີນກຳນົດ ສູງສຸດ 2ຮູບ",
+      });
+    }
+    let reviewImages = [];
+    if (files && files.length > 0) {
+      const uploadPromises = files.map((file) => uploadImage(file));
+      const uploadResults = await Promise.all(uploadPromises);
+      reviewImages = uploadResults.map((r) => r.secure_url);
+    }
+
+    const review = new Review({
+      product: productsId,
+      user: userId,
+      rating,
+      reviewText,
+      reviewImages,
+    });
+
+    await review.save();
+
+    const product = await Product.findById(productsId);
+    if (product) {
+      const allReviews = await Review.find({ product: productsId });
+      const avgRating =
+        allReviews.reduce((acc, r) => acc + r.rating, 0) / allReviews.length;
+
+      product.averageRating = avgRating;
+      product.reviewCount = allReviews.length;
+      await product.save();
+    }
+    await redis.del(`product:${productsId}`);
+    const seller = await Seller.findOne({ user_id: product.user_id });
+    ////ລວມຄ່າສະເລ່ຍຄະແນນທັງໝົດ
+    const product_all = await Product.find({ user_id: product.user_id }).lean();
+    const user_seller = await User.findById(product.user_id);
+    let totalRating = 0;
+    let totalReviews = 0;
+
+    product_all.forEach((p) => {
+      totalRating += (p.averageRating || 0) * (p.reviewCount || 0);
+      totalReviews += p.reviewCount || 0;
+    });
+
+    const sellerAvgRating = totalReviews > 0 ? totalRating / totalReviews : 0;
+    seller.sellerAvgRating = sellerAvgRating;
+    user_seller.sellerAvgRating = sellerAvgRating;
+    await seller.save();
+    await user_seller.save();
+
+    ///about redis
+    await redis.set(
+      `product:${productsId}`,
+      JSON.stringify({ product, seller }),
+      { ex: 3600, nx: true }
+    );
+
+    await redis.del(`related_products:${productsId}`);
+    await redis.set(`related_products:${productsId}`, JSON.stringify(product), {
+      ex: 3600,
+      nx: true,
+    });
+    await redis.del(`get_reviews:${productsId}`);
+    const reviews = await Review.find({ product: productsId })
+      .populate("user", "username avatar") // เพิ่ม avatar ด้วยถ้ามี
+      .sort({ createdAt: -1 });
+    const avgRating = product?.averageRating || 0;
+    const reviewCount = product?.reviewCount || 0;
+
+    const data = {
+      reviews,
+      avgRating,
+      reviewCount,
+    };
+    await redis.set(`get_reviews:${productsId}`, JSON.stringify(data), {
+      ex: 3600,
+      nx: true,
+    });
+    await refreshRedis_home();
+    await refreshRedisProducts();
+
+    res.status(200).json({ success: true, message: "ສຳເລັດ" });
+  } catch (error) {
+    console.error("add_reviews error:", error);
+    res.status(500).json({ message: "server error 500" });
+  }
+};
+
+// ดึงรีวิวของสินค้าตาม productsId
+const get_reviews = async (req, res) => {
+  try {
+    const { productsId } = req.params;
+    const cacheKey = `get_reviews:${productsId}`; // ✅ ใช้ key แยกตามสินค้า
+
+    // 1️⃣ ตรวจสอบจาก Redis ก่อน
+    const cachedReviews = await redis.get(cacheKey);
+    if (cachedReviews) {
+      console.log(`📌 Get reviews for ${productsId} from Redis`);
+      return res.status(200).json({
+        success: true,
+        data: cachedReviews,
+        source: "redis",
+      });
+    }
+
+    // 2️⃣ ดึงจาก MongoDB
+    const reviews = await Review.find({ product: productsId })
+      .populate("user", "username avatar") // เพิ่ม avatar ด้วยถ้ามี
+      .sort({ createdAt: -1 });
+
+    // 3️⃣ คำนวณค่าเฉลี่ยและจำนวนรีวิว
+    const product = await Product.findById(productsId);
+    const avgRating = product?.averageRating || 0;
+    const reviewCount = product?.reviewCount || 0;
+
+    const data = {
+      reviews,
+      avgRating,
+      reviewCount,
+    };
+
+    // 4️⃣ เก็บใน Redis (หมดอายุ 1 ชั่วโมง)
+    await redis.set(cacheKey, JSON.stringify(data), {
+      ex: 3600,
+      nx: true,
+    });
+
+    res.status(200).json({
+      success: true,
+      data,
+      source: "mongodb",
+    });
+  } catch (error) {
+    console.error("get_reviews error:", error);
+    res.status(500).json({ message: "server error 500" });
+  }
+};
+
 module.exports = {
   get__products_id,
   cart,
@@ -1325,7 +1937,6 @@ module.exports = {
   wishlist_add,
   get_wishlist,
   get_wishlist_all,
-  delete_cart_item_products,
   delete_items,
   get_home_products,
   get_related_products,
@@ -1337,4 +1948,6 @@ module.exports = {
   refreshRedis_home,
   get__products,
   onSubscribePaymentSupport,
+  add_reviews,
+  get_reviews,
 };

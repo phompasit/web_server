@@ -24,7 +24,6 @@ const registerSchema = Joi.object({
     .optional()
     .allow(null, ""),
   agreeTerms: Joi.boolean().optional(),
-  role: Joi.string().min(10).required(),
 });
 // Image upload helper
 const uploadImage = async (image) => {
@@ -81,10 +80,10 @@ const register_user_auth = async (req, res, next) => {
     const agreeTerms = Boolean(value.agreeTerms);
 
     // Prevent role escalation: server decides role (ignore any role from client)
-    const role = value.role;
+    const role = req.body.role;
 
     // Check duplicates (safe queries using primitives)
-    const existingUser = await User.findOne({ $or: [{ username }, { email }] });
+    const existingUser = await User.findOne({ $or: [{ email }] });
     if (existingUser) {
       return res
         .status(400)
@@ -493,7 +492,7 @@ const get_sellers = async (req, res) => {
       .find()
       .lean()
       .select(
-        "_id user_id store_code store_images  store_name totalSold  verificationStatus description address createdAt"
+        "_id user_id store_code store_images  store_name totalSold sellerAvgRating  verificationStatus description address createdAt"
       );
     const allProducts = await products
       .find({ access_products: "access" })
@@ -517,7 +516,7 @@ const get_sellers = async (req, res) => {
       // แนบสินค้าไปด้วย (ถ้าอยากโชว์)
       seller.products = sellerProducts;
     }
-
+      console.log(sellersList)
     res.status(200).json({
       data: sellersList,
     });

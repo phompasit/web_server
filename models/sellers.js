@@ -87,6 +87,10 @@ const sellerSchema = new Schema(
       type: Number,
       default: 0,
     },
+     sellerAvgRating: {
+      type: Number,
+      default: 0,
+    },
   },
   { timestamps: true, toObject: { virtuals: true }, toJSON: { virtuals: true } }
 );

@@ -63,7 +63,6 @@ router.get("/get_order", authMiddlewares, authorizeRoles("sellers"), get_order);
 router.patch(
   "/update-status-shipping/:id",
   authMiddlewares,
-  authorizeRoles("sellers"),
   update_status_shipping
 );
 router.patch(

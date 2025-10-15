@@ -76,6 +76,10 @@ const userSchema = new Schema(
     uuid: {
       type: String,
     },
+    sellerAvgRating: {
+      type: Number,
+      default: 0,
+    },
   },
   { timestamps: true }
 );

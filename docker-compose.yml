@@ -9,7 +9,7 @@ services:
     expose:
       - "${PORT}"
     env_file:
-      - .env
+      - .env 
 
   nginx:
     image: nginx:latest

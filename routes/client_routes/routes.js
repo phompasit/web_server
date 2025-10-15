@@ -15,7 +15,7 @@ const {
   wishlist_add,
   get_wishlist,
   get_wishlist_all,
-  delete_cart_item_products,
+
   delete_items,
   get_home_products,
   get_related_products,
@@ -23,6 +23,8 @@ const {
   get_order,
   get_order_id,
   get__products,
+  add_reviews,
+  get_reviews,
 } = require("../../controllers/client_controllers/products");
 const {
   add_shipping,
@@ -31,7 +33,9 @@ const {
 } = require("../../controllers/client_controllers/client_auth_profile");
 const router = express.Router();
 ///ລົງທະບຽນ user
+const multer = require("multer");
 
+const upload = multer({ storage: multer.memoryStorage() });
 ///get-product-client
 router.get("/get__products", get__products);
 ///get__products_id
@@ -40,13 +44,7 @@ router.get("/get__products_id/:id", get__products_id);
 router.post("/cart", authMiddlewares, cart);
 //get_cart
 router.get("/get-cart", authMiddlewares, get_cart);
-///delete_cart_item_products
-router.delete(
-  "/delete_cart_item_products/:cartId/:productId",
 
-  authMiddlewares,
-  delete_cart_item_products
-);
 ///update_quantity
 router.patch(
   "/update_quantity/:id",
@@ -150,5 +148,12 @@ router.get("/get_order", authMiddlewares, get_order);
 router.get("/get_order_id/:orderId", authMiddlewares, get_order_id);
 
 ///
-
+router.post(
+  "/add_reviews/:productsId",
+  upload.array("reviewImages"),
+  authMiddlewares,
+  add_reviews
+);
+//get_reviews
+router.get("/get_reviews/:productsId", get_reviews);
 module.exports = router;

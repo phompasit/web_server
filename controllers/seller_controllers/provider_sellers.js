@@ -557,7 +557,7 @@ const update_status_shipping = async (req, res) => {
     const subscriptionData = await SubscriptionModel.findOne({
       userId: updatedOrder.user_id,
     });
-    console.log(subscriptionData);
+
     if (subscriptionData) {
       // สมมติ product.status เป็นสถานะล่าสุดของสินค้า
       const payload = JSON.stringify({
@@ -584,7 +584,7 @@ const update_status_shipping = async (req, res) => {
 
 const uploadImageTracking = async (image) => {
   try {
-    console.log("image", image);
+  
     return new Promise((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
         {

@@ -9,7 +9,7 @@ const authMiddlewares = async (req, res, next) => {
       return res.status(401).json({
         success: false,
         authenticated: false,
-        message: "Please login to access this route",
+        message: "ກະລຸນາເຂົ້າສູ່ລະບົບກ່ອນ",
       });
     }
 

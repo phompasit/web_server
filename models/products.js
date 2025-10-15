@@ -72,10 +72,6 @@ const sellerSchema = new Schema(
     },
 
     expires_at: { type: Date }, // TTL index
-    ratings: {
-      average: { type: Number, default: 0 },
-      count: { type: Number, default: 0 },
-    },
     shipping_info: {
       weight: { type: Number, default: 0 }, // kg
       dimensions: {
@@ -113,6 +109,15 @@ const sellerSchema = new Schema(
       type: Number,
       min: 0,
     },
+    //averageRating
+    averageRating:{
+      type: Number,
+      min: 0,
+    },
+    reviewCount:{
+         type: Number,
+      min: 0,
+    }
   },
   { timestamps: true }
 );
@@ -140,5 +145,16 @@ sellerSchema.virtual("falsh_sales", {
   ref: "falsh_sales",
   localField: "_id",
   foreignField: "productId",
+});
+
+sellerSchema.virtual("falsh_sales", {
+  ref: "falsh_sales",
+  localField: "_id",
+  foreignField: "product",
+});
+sellerSchema.virtual("Review", {
+  ref: "Review",
+  localField: "_id",
+  foreignField: "user",
 });
 module.exports = model("products_models", sellerSchema);
