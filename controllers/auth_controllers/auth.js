@@ -115,8 +115,8 @@ const register_user_auth = async (req, res, next) => {
     const isProd = process.env.NODE_ENV === "production";
     res.cookie("accessToken", token, {
       httpOnly: true,
-      secure: isProd, // true only in production on HTTPS
-      sameSite: "Lax",
+      secure: true, // true only in production on HTTPS
+      sameSite: "none",
       maxAge: 24 * 60 * 60 * 1000,
     });
 
@@ -175,7 +175,7 @@ const login = async (req, res, role = []) => {
     res.cookie("accessToken", token, {
       httpOnly: true,
       secure: true, // true เฉพาะบน HTTPS
-      sameSite: "Lax", // ปรับเป็น 'Lax' ปกติปลอดภัยกว่า 'None'
+      sameSite: "none", // ปรับเป็น 'Lax' ปกติปลอดภัยกว่า 'None'
       maxAge: 24 * 60 * 60 * 1000, // 1 วัน
       // domain, path, signed สามารถกำหนดได้ตามต้องการ
     });
@@ -479,7 +479,7 @@ const remove_logout = async (req, res) => {
     res.clearCookie("accessToken", {
       httpOnly: true,
       secure: true,
-      sameSite: "lax",
+      sameSite: "none",
       path: "/",
     });
     res.status(200).json({ message: "ອອກລະບົບສຳເລັດ" });
