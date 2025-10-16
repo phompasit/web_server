@@ -174,8 +174,8 @@ const login = async (req, res, role = []) => {
     const isProd = process.env.NODE_ENV === "production";
     res.cookie("accessToken", token, {
       httpOnly: true,
-      secure: isProd, // true เฉพาะบน HTTPS
-      sameSite: isProd ? "Lax" : "Lax", // ปรับเป็น 'Lax' ปกติปลอดภัยกว่า 'None'
+      secure: true, // true เฉพาะบน HTTPS
+      sameSite: "Lax", // ปรับเป็น 'Lax' ปกติปลอดภัยกว่า 'None'
       maxAge: 24 * 60 * 60 * 1000, // 1 วัน
       // domain, path, signed สามารถกำหนดได้ตามต้องการ
     });
@@ -357,7 +357,9 @@ const updateSeller = async (req, res) => {
 
     const existingSeller = await seller.findOne({ user_id: id });
     if (!existingSeller) {
-      return res.status(404).json({ message: "ບໍ່ພົບຂໍ້ມູນຜູ້ຂາຍ ກະລຸນາຢືນຢັນຕົວຕົນໃຫ້ສຳເລັດ" });
+      return res
+        .status(404)
+        .json({ message: "ບໍ່ພົບຂໍ້ມູນຜູ້ຂາຍ ກະລຸນາຢືນຢັນຕົວຕົນໃຫ້ສຳເລັດ" });
     }
 
     // สร้าง store_code ถ้ายังไม่มี
@@ -516,7 +518,7 @@ const get_sellers = async (req, res) => {
       // แนบสินค้าไปด้วย (ถ้าอยากโชว์)
       seller.products = sellerProducts;
     }
-      console.log(sellersList)
+    console.log(sellersList);
     res.status(200).json({
       data: sellersList,
     });
@@ -624,7 +626,7 @@ const deleteAddress = async (req, res) => {
 
 module.exports.register_user_auth = register_user_auth; //ສະໝັກສະມາຊິກ
 module.exports.login = login; /// ລອກອິນ
-module.exports.get_user = get_user;  ///ດືງ user ມາທັງໝົດ
+module.exports.get_user = get_user; ///ດືງ user ມາທັງໝົດ
 module.exports.verifyUserCreate = verifyUserCreate; ///ສຳລັບຢືນຢັນຕົວຕົນຜູ້ຂາຍ
 module.exports.getVerifyUser = getVerifyUser; ///ດືງຂໍ້ມູນຜູ້ຂາຍ
 module.exports.updateSeller = updateSeller; //ອັບເດດຂໍ້ມູນຜູ້ຂາຍ
