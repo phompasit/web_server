@@ -45,11 +45,7 @@ const {
 app.use(
   cors({
     origin: function (origin, callback) {
-      const allowedOrigins = [
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "https://admin-seller-ecomerce-myshop.pages.dev",
-      ];
+      const allowedOrigins = ["*" ];
 
       if (!origin) {
         // non-browser requests เช่น Postman ให้อนุญาต
