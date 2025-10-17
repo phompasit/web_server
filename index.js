@@ -49,16 +49,17 @@ app.use(
         "http://localhost:5173", // dev
         "http://localhost:5174", // optional
         "https://admin-seller-ecomerce-myshop.pages.dev", // admin
-        // "https://client-myshop.pages.dev", // client
       ];
 
-      if (!origin) return callback(null, true);
-      if (!allowedOrigins.includes(origin)) {
-        const msg =
-          "The CORS policy for this site does not allow access from the specified Origin.";
-        return callback(new Error(msg), false);
+      if (!origin) return callback(null, "*"); // non-browser requests หรือ Postman
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, origin); // ส่ง origin เป็น string
       }
-      return callback(null, true);
+
+      const msg =
+        "The CORS policy for this site does not allow access from the specified Origin.";
+      return callback(new Error(msg), false);
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
