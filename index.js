@@ -45,15 +45,15 @@ const {
 app.use(
   cors({
     origin: function (origin, callback) {
-      // const allowedOrigins = [
-      //   "http://localhost:5173",
-      //   "http://localhost:5174",
-      //   "https://admin-seller-ecomerce-myshop.pages.dev",
-      // ];
-       const allowedOrigins = ["https://admin-seller-ecomerce-myshop.pages.dev"]
-      // const allowedOrigins = ["*"];
+      const allowedOrigins = [
+        "http://localhost:5173", // dev
+        "http://localhost:5174", // optional
+        "https://admin-seller-ecomerce-myshop.pages.dev", // admin
+        // "https://client-myshop.pages.dev", // client
+      ];
+
       if (!origin) return callback(null, true);
-      if (allowedOrigins.indexOf(origin) === -1) {
+      if (!allowedOrigins.includes(origin)) {
         const msg =
           "The CORS policy for this site does not allow access from the specified Origin.";
         return callback(new Error(msg), false);

@@ -26,7 +26,12 @@ const sendPushNotification = async (subscription, payload, userId) => {
 function initializeSocket(server) {
   const io = new Server(server, {
     cors: {
-      origin: ["https://admin-seller-ecomerce-myshop.pages.dev"],
+      origin: [
+        "http://localhost:5173", // dev
+        "http://localhost:5174", // optional
+        "https://admin-seller-ecomerce-myshop.pages.dev", // admin
+        // "https://client-myshop.pages.dev", // client
+      ],
       // origin: [
       //   "http://localhost:5173",
       //   "http://localhost:5174",
@@ -35,6 +40,7 @@ function initializeSocket(server) {
       // ],
       credentials: true,
     },
+    transports: ["websocket", "polling"], // ✅ เพิ่มเพื่อบังคับใช้ websocket ก่อน
     pingInterval: 20000, // default 25s
     pingTimeout: 5000, // default 20s
     perMessageDeflate: false,
