@@ -26,7 +26,11 @@ const sendPushNotification = async (subscription, payload, userId) => {
 function initializeSocket(server) {
   const io = new Server(server, {
     cors: {
-      origin: ["*"],
+      origin: [
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "https://admin-seller-ecomerce-myshop.pages.dev",
+      ],
       credentials: true,
     },
     transports: ["websocket", "polling"], // ✅ เพิ่มเพื่อบังคับใช้ websocket ก่อน

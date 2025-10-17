@@ -45,20 +45,24 @@ const {
 app.use(
   cors({
     origin: function (origin, callback) {
-      const allowedOrigins = ["*" ];
+      const allowedOrigins = [
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "https://admin-seller-ecomerce-myshop.pages.dev",
+      ];
 
       if (!origin) {
-        // non-browser requests เช่น Postman ให้อนุญาต
-        return callback(null, true);
+        // non-browser request เช่น Postman
+        return callback(null, false); // ไม่อนุญาต
       }
 
       if (allowedOrigins.includes(origin)) {
-        return callback(null, origin);
+        return callback(null, origin); // ส่ง origin จริง
       }
 
       return callback(
         new Error(
-          "The CORS policy for this site does not allow access from the specified Origin."
+          `${origin}_The CORS policy for this site does not allow access from the specified Origin.`
         ),
         false
       );
@@ -68,7 +72,6 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
-
 app.use(helmet());
 app.use(cookieParser());
 app.use(express.json({ limit: "10mb" }));
