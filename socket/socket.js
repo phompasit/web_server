@@ -24,21 +24,19 @@ const sendPushNotification = async (subscription, payload, userId) => {
 };
 
 function initializeSocket(server) {
-  const io = require("socket.io")(server, {
+  const io = new Server(server, {
     cors: {
-      origin: function (origin, callback) {
-        const allowedOrigins = [
-          "http://localhost:5173",
-          "http://localhost:5174",
-          "https://admin-seller-ecomerce-myshop.pages.dev",
-        ];
-
-        if (!origin || allowedOrigins.includes(origin)) callback(null, true);
-        else callback(new Error("Not allowed by CORS"));
-      },
-      methods: ["GET", "POST"],
+      origin: [
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "https://admin-seller-ecomerce-myshop.pages.dev",
+      ],
       credentials: true,
     },
+    transports: ["websocket", "polling"], // ✅ เพิ่มเพื่อบังคับใช้ websocket ก่อน
+    pingInterval: 20000, // default 25s
+    pingTimeout: 5000, // default 20s
+    perMessageDeflate: false,
   });
   //////
   io.on("connect", (socket) => {

@@ -46,27 +46,32 @@ app.use(
   cors({
     origin: function (origin, callback) {
       const allowedOrigins = [
-        "http://localhost:5173", // dev
-        "http://localhost:5174", // optional
-        "https://admin-seller-ecomerce-myshop.pages.dev", // admin
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "https://admin-seller-ecomerce-myshop.pages.dev",
       ];
 
-      if (!origin) return callback(null, "*"); // non-browser requests หรือ Postman
-
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, origin); // ส่ง origin เป็น string
+      if (!origin) {
+        // non-browser request เช่น Postman
+        return callback(null, false); // ไม่อนุญาต
       }
 
-      const msg =
-        "The CORS policy for this site does not allow access from the specified Origin.";
-      return callback(new Error(msg), false);
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, origin); // ส่ง origin จริง
+      }
+
+      return callback(
+        new Error(
+          "The CORS policy for this site does not allow access from the specified Origin."
+        ),
+        false
+      );
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
-
 app.use(helmet());
 app.use(cookieParser());
 app.use(express.json({ limit: "10mb" }));
