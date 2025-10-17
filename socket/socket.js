@@ -26,12 +26,13 @@ const sendPushNotification = async (subscription, payload, userId) => {
 function initializeSocket(server) {
   const io = new Server(server, {
     cors: {
-      origin: [
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://localhost:3000",
-        'https://admin-seller-ecomerce-myshop.pages.dev/'
-      ],
+      origin: ["https://admin-seller-ecomerce-myshop.pages.dev"],
+      // origin: [
+      //   "http://localhost:5173",
+      //   "http://localhost:5174",
+      //   "http://localhost:3000",
+      //   'https://admin-seller-ecomerce-myshop.pages.dev'
+      // ],
       credentials: true,
     },
     pingInterval: 20000, // default 25s

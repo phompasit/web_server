@@ -4,7 +4,7 @@ const rateLimit = require("express-rate-limit");
 const authMiddlewares = async (req, res, next) => {
   try {
     const { accessToken } = req?.cookies;
-
+    console.log(accessToken )
     if (!accessToken) {
       return res.status(401).json({
         success: false,
