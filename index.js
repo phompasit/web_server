@@ -52,12 +52,12 @@ app.use(
       ];
 
       if (!origin) {
-        // non-browser request เช่น Postman
-        return callback(null, false); // ไม่อนุญาต
+        // non-browser requests เช่น Postman ให้อนุญาต
+        return callback(null, true);
       }
 
       if (allowedOrigins.includes(origin)) {
-        return callback(null, origin); // ส่ง origin จริง
+        return callback(null, origin);
       }
 
       return callback(
@@ -72,6 +72,7 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
 app.use(helmet());
 app.use(cookieParser());
 app.use(express.json({ limit: "10mb" }));
