@@ -26,14 +26,29 @@ const sendPushNotification = async (subscription, payload, userId) => {
 function initializeSocket(server) {
   const io = new Server(server, {
     cors: {
-      origin: true,
+      origin: [
+        "https://admin-seller-ecomerce-myshop.pages.dev",
+        "https://myshop-x2x.pages.dev",
+      ],
+      methods: ["GET", "POST"],
       credentials: true,
+      transports: ["websocket", "polling"], // ✅ เพิ่มเพื่อบังคับใช้ websocket ก่อน
+      pingInterval: 20000, // default 25s
+      pingTimeout: 5000, // default 20s
+      perMessageDeflate: false,
     },
-    transports: ["websocket", "polling"], // ✅ เพิ่มเพื่อบังคับใช้ websocket ก่อน
-    pingInterval: 20000, // default 25s
-    pingTimeout: 5000, // default 20s
-    perMessageDeflate: false,
   });
+
+  // const io = new Server(server, {
+  //   cors: {
+  //     origin: true,
+  //     credentials: true,
+  //   },
+  //   transports: ["websocket", "polling"], // ✅ เพิ่มเพื่อบังคับใช้ websocket ก่อน
+  //   pingInterval: 20000, // default 25s
+  //   pingTimeout: 5000, // default 20s
+  //   perMessageDeflate: false,
+  // });
   //////
   io.on("connect", (socket) => {
     console.log("🟢 Socket connected:", socket.id);

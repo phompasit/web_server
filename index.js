@@ -42,44 +42,43 @@ const {
 } = require("./controllers/client_controllers/products");
 // Middleware
 // ✅ Middleware
+// const corsOptions = {
+//   origin: "https://admin-seller-ecomerce-myshop.pages.dev",
+//   credentials: true,
+//   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+//   allowedHeaders: ["Content-Type", "Authorization"],
+// };
+
 app.use(
   cors({
-    origin: true, // อนุญาตทุก origin
+    origin: function (origin, callback) {
+      const allowedOrigins = [
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "https://admin-seller-ecomerce-myshop.pages.dev",
+        "https://myshop-x2x.pages.dev",
+      ];
+
+      if (!origin) {
+        //         // non-browser request เช่น Postman
+        return callback(null, false); // ไม่อนุญาต
+      }
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, origin); // ส่ง origin จริง
+      }
+
+      return callback(
+        new Error(
+          `_The CORS policy for this site does not allow access from the specified Origin.`
+        ),
+        false
+      );
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
-// app.use(
-//   cors({
-//     origin: function (origin, callback) {
-//       const allowedOrigins = [
-//         "http://localhost:5173",
-//         "http://localhost:5174",
-//         "https://admin-seller-ecomerce-myshop.pages.dev",
-//       ];
-
-//       if (!origin) {
-//         // non-browser request เช่น Postman
-//         return callback(null, false); // ไม่อนุญาต
-//       }
-
-//       if (allowedOrigins.includes(origin)) {
-//         return callback(null, origin); // ส่ง origin จริง
-//       }
-
-//       return callback(
-//         new Error(
-//           `${origin}_The CORS policy for this site does not allow access from the specified Origin.`
-//         ),
-//         false
-//       );
-//     },
-//     credentials: true,
-//     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-//     allowedHeaders: ["Content-Type", "Authorization"],
-//   })
-// );
 app.use(helmet());
 app.use(cookieParser());
 app.use(express.json({ limit: "10mb" }));
