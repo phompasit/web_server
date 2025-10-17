@@ -23,7 +23,6 @@ const registerSchema = Joi.object({
     .pattern(/^\d{7,15}$/)
     .optional()
     .allow(null, ""),
-  agreeTerms: Joi.boolean().optional(),
 });
 // Image upload helper
 const uploadImage = async (image) => {
@@ -77,7 +76,7 @@ const register_user_auth = async (req, res, next) => {
     const email = String(value.email).trim().toLowerCase();
     const password = String(value.password);
     const phone = value.phone ? String(value.phone).trim() : null;
-    const agreeTerms = Boolean(value.agreeTerms);
+    // const agreeTerms = Boolean(value.agreeTerms);
 
     // Prevent role escalation: server decides role (ignore any role from client)
     const role = req.body.role;
@@ -99,7 +98,7 @@ const register_user_auth = async (req, res, next) => {
       email,
       password: hashedPassword,
       phone,
-      agreeTerms,
+      agreeTerms: req.body.agreeTerms,
       role,
     });
 
