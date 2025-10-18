@@ -478,21 +478,17 @@ const update_status_shipping = async (req, res) => {
 
     // ✅ กำหนดลำดับสถานะที่ถูกต้อง
     const statusFlow = {
-      "Pending": ["Processing", "Cancelled"],
-      "Processing": ["Shipped", "Cancelled"],
-      "Shipped": ["In_Transit", "Cancelled"],
-      "In_Transit": ["Out_for_Delivery", "Cancelled"],
-      "Out_for_Delivery": ["Delivered", "Cancelled"],
-      "Delivered": [], // สถานะสิ้นสุด
-      "Returned": [], // สถานะสิ้นสุด
-      "Cancelled": [], // สถานะสิ้นสุด
+      Pending: ["Processing", "Cancelled"],
+      Processing: ["Shipped", "Cancelled"],
+      Shipped: ["Delivered", "Cancelled"],
+      Delivered: ["Cancelled", "Cancelled"],
     };
 
     const currentStatus = find_order.shipping_status;
 
     // ✅ ตรวจสอบว่าสถานะปัจจุบันอนุญาตให้เปลี่ยนเป็นสถานะใหม่ได้หรือไม่
     const allowedNextStatuses = statusFlow[currentStatus] || [];
-    
+
     if (!allowedNextStatuses.includes(shipping_status)) {
       return res.status(400).json({
         message: `ไม่สามารถเปลี่ยนสถานะจาก "${currentStatus}" เป็น "${shipping_status}" ได้`,
@@ -523,7 +519,7 @@ const update_status_shipping = async (req, res) => {
 
         // ลบ transaction ที่ผูกกับ order นี้
         await Transaction.findOneAndDelete({ order_id: find_order?._id });
-        
+
         // redis
         await redis.del(`product:${id}`); // ลบ cache เก่าออกก่อน
         const seller = await sellers.findOne({
@@ -549,7 +545,7 @@ const update_status_shipping = async (req, res) => {
         await refreshRedisProducts();
       }
     }
-    
+
     // อัปเดตสถานะ + เพิ่ม delivery step
     const updatedOrder = await order.findByIdAndUpdate(
       id,
@@ -565,7 +561,7 @@ const update_status_shipping = async (req, res) => {
       },
       { new: true }
     );
-    
+
     const subscriptionData = await SubscriptionModel.findOne({
       userId: updatedOrder.user_id,
     });
@@ -583,7 +579,7 @@ const update_status_shipping = async (req, res) => {
         updatedOrder.user_id
       );
     }
-    
+
     res.status(200).json({
       message: "Order shipping status updated successfully",
       data: updatedOrder,
@@ -596,7 +592,6 @@ const update_status_shipping = async (req, res) => {
 
 const uploadImageTracking = async (image) => {
   try {
-  
     return new Promise((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
         {
