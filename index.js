@@ -41,22 +41,14 @@ const {
   onSubscribePaymentSupport,
 } = require("./controllers/client_controllers/products");
 // Middleware
-// ✅ Middleware
-// const corsOptions = {
-//   origin: "https://admin-seller-ecomerce-myshop.pages.dev",
-//   credentials: true,
-//   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-//   allowedHeaders: ["Content-Type", "Authorization"],
-// };
-
 app.use(
   cors({
     origin: function (origin, callback) {
       const allowedOrigins = [
         "http://localhost:5173",
         "http://localhost:5174",
-        "https://admin-seller-ecomerce-myshop.pages.dev",
-        "https://myshop-x2x.pages.dev",
+         "https://admin-seller-ecomerce-myshop.pages.dev",
+         "https://myshop-x2x.pages.dev",
       ];
 
       if (!origin) {

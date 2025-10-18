@@ -563,7 +563,7 @@ const update_status_shipping = async (req, res) => {
       const payload = JSON.stringify({
         title: "ຂໍ້ຄວາມໃໝ່",
         body: `ສະຖານະຂອງຄຳສັ່ງ: ${updatedOrder.shipping_status}`, // แสดง status
-        url: `http://localhost:5174/orders/${updatedOrder._id}`, // ลิงก์ตรงไปยัง order
+        url: `https://myshop-x2x.pages.dev/orders/${updatedOrder._id}`, // ลิงก์ตรงไปยัง order
       });
 
       await sendPushNotification(
